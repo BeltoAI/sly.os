@@ -368,7 +368,7 @@ export default function Home() {
               {signupCount}
             </div>
             <div style={{ fontSize: 'clamp(1.3rem, 3vw, 1.8rem)', color: '#c8cfdd', fontWeight: 700, marginBottom: '0.5em' }}>
-              Builders Already Joined
+              People Already Joined
             </div>
             <div style={{ fontSize: 'clamp(0.95rem, 1.5vw, 1.1rem)', color: '#9fa8bf' }}>
               Join the movement to democratize AI infrastructure
@@ -549,23 +549,51 @@ export default function Home() {
       </section>
 
       {/* No BS Features */}
-      {/* No BS Features */}
       <section className="section no-bs">
         <div className="container">
-          <h2 className="grad" style={{ textAlign: "center" }}>No Bullshit</h2>
-          <div className="no-bs-grid">
-            <div className="no-bs-row">
-              <div className="no-bs-item"><div className="no-bs-icon">❌</div><div className="no-bs-text">No minimum spend</div></div>
-              <div className="no-bs-item"><div className="no-bs-icon">❌</div><div className="no-bs-text">No credit card to test</div></div>
-              <div className="no-bs-item"><div className="no-bs-icon">❌</div><div className="no-bs-text">No surprise egress fees</div></div>
-              <div className="no-bs-item"><div className="no-bs-icon">❌</div><div className="no-bs-text">No vendor lock-in</div></div>
+          <h2 className="grad" style={{ textAlign: "center", marginBottom: "1em" }}>No Bullshit</h2>
+          <div style={{ maxWidth: "1000px", margin: "0 auto" }}>
+            <div style={{ background: "rgba(255,50,50,0.03)", border: "1px solid rgba(255,80,80,0.2)", borderRadius: "16px", padding: "clamp(20px, 3vw, 32px)", marginBottom: "24px" }}>
+              <h3 style={{ color: "#ff6b6b", fontSize: "1.2rem", marginBottom: "1em", fontWeight: 700 }}>What We Don't Do</h3>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "16px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <span style={{ fontSize: "1.5rem", color: "#ff6b6b" }}>✕</span>
+                  <span style={{ color: "#c8cfdd" }}>No minimum spend</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <span style={{ fontSize: "1.5rem", color: "#ff6b6b" }}>✕</span>
+                  <span style={{ color: "#c8cfdd" }}>No credit card to test</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <span style={{ fontSize: "1.5rem", color: "#ff6b6b" }}>✕</span>
+                  <span style={{ color: "#c8cfdd" }}>No surprise egress fees</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <span style={{ fontSize: "1.5rem", color: "#ff6b6b" }}>✕</span>
+                  <span style={{ color: "#c8cfdd" }}>No vendor lock-in</span>
+                </div>
+              </div>
             </div>
-            <div className="no-bs-separator"></div>
-            <div className="no-bs-row">
-              <div className="no-bs-item yes"><div className="no-bs-icon">✓</div><div className="no-bs-text">Pay per inference</div></div>
-              <div className="no-bs-item yes"><div className="no-bs-icon">✓</div><div className="no-bs-text">Cancel anytime</div></div>
-              <div className="no-bs-item yes"><div className="no-bs-icon">✓</div><div className="no-bs-text">Full API ownership</div></div>
-              <div className="no-bs-item yes"><div className="no-bs-icon">✓</div><div className="no-bs-text">Proof-verified outputs</div></div>
+            <div style={{ background: "rgba(0,255,100,0.03)", border: "1px solid rgba(0,255,100,0.2)", borderRadius: "16px", padding: "clamp(20px, 3vw, 32px)" }}>
+              <h3 style={{ color: "#00ff88", fontSize: "1.2rem", marginBottom: "1em", fontWeight: 700 }}>What We Do</h3>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "16px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <span style={{ fontSize: "1.5rem", color: "#00ff88" }}>✓</span>
+                  <span style={{ color: "#c8cfdd" }}>Pay per inference</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <span style={{ fontSize: "1.5rem", color: "#00ff88" }}>✓</span>
+                  <span style={{ color: "#c8cfdd" }}>Cancel anytime</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <span style={{ fontSize: "1.5rem", color: "#00ff88" }}>✓</span>
+                  <span style={{ color: "#c8cfdd" }}>Full API ownership</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <span style={{ fontSize: "1.5rem", color: "#00ff88" }}>✓</span>
+                  <span style={{ color: "#c8cfdd" }}>Proof-verified outputs</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
