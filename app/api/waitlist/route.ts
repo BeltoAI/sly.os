@@ -120,12 +120,10 @@ export async function POST(request: Request) {
       organization: organization || '',
     });
 
-    // Send welcome email directly
     try {
       await sendWelcomeEmail(email, audience, organization);
     } catch (emailError) {
       console.error('Failed to send email:', emailError);
-      // Don't fail the signup if email fails
     }
 
     return NextResponse.json({ 
@@ -148,8 +146,15 @@ export async function POST(request: Request) {
 export async function GET() {
   try {
     await dbConnect();
-    const count = await Waitlist.countDocuments();
-    return NextResponse.json({ count });
+    const totalCount = await Waitlist.countDocuments();
+    const companyCount = await Waitlist.countDocuments({ audience: 'company' });
+    const individualCount = await Waitlist.countDocuments({ audience: 'app' });
+    
+    return NextResponse.json({ 
+      total: totalCount,
+      companies: companyCount,
+      individuals: individualCount
+    });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to get count' }, { status: 500 });
   }

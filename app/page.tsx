@@ -11,7 +11,7 @@ export default function Home() {
   const [modalStatus, setModalStatus] = useState({ show: false, type: '', message: '' });
   const [pageStatus, setPageStatus] = useState({ show: false, type: '', message: '' });
   const [spotsLeft] = useState(23);
-  const [signupCount, setSignupCount] = useState(0);
+  const [signupCount, setSignupCount] = useState({ total: 0, companies: 0, individuals: 0 });
 
   useEffect(() => {
     const hasSeenModal = sessionStorage.getItem('slyos_modal_seen');
@@ -31,7 +31,7 @@ export default function Home() {
     // Fetch waitlist count
     fetch("/api/waitlist")
       .then(res => res.json())
-      .then(data => setSignupCount(data.count || 0))
+      .then(data => setSignupCount({ total: data.total || 0, companies: data.companies || 0, individuals: data.individuals || 0 }))
       .catch(err => console.error("Failed to fetch count:", err));
   };
 
@@ -51,7 +51,8 @@ export default function Home() {
       if (response.ok) {
         setModalStatus({ show: true, type: 'success', message: 'You are in! Check your email.' });
         setModalForm({ email: "", audience: "company", organization: "" });
-        setSignupCount(prev => prev + 1);
+        setSignupCount(prev => ({ total: prev.total + 1, companies: modalForm.audience === "company" ? prev.companies + 1 : prev.companies, individuals: modalForm.audience === "app" ? prev.individuals + 1 : prev.individuals }));
+        setSignupCount(prev => ({ total: prev.total + 1, companies: pageForm.audience === "company" ? prev.companies + 1 : prev.companies, individuals: pageForm.audience === "app" ? prev.individuals + 1 : prev.individuals }));
         setTimeout(() => closeModal(), 2000);
       } else {
         setModalStatus({ show: true, type: 'error', message: data.error || 'Something went wrong.' });
@@ -77,7 +78,7 @@ export default function Home() {
       if (response.ok) {
         setPageStatus({ show: true, type: 'success', message: 'You are in! Check your email.' });
         setPageForm({ email: "", audience: "company", organization: "" });
-        setSignupCount(prev => prev + 1);
+        setSignupCount(prev => ({ total: prev.total + 1, companies: pageForm.audience === "company" ? prev.companies + 1 : prev.companies, individuals: pageForm.audience === "app" ? prev.individuals + 1 : prev.individuals }));
         setTimeout(() => setPageStatus({ show: false, type: '', message: '' }), 5000);
       } else {
         setPageStatus({ show: true, type: 'error', message: data.error || 'Something went wrong.' });
@@ -360,23 +361,41 @@ export default function Home() {
         </div>
       </header>
 
+
       {/* Signup Counter */}
       <section className="section" style={{ padding: 'clamp(60px, 10vw, 100px) 0', background: 'linear-gradient(180deg, rgba(255,122,24,0.08), transparent)', textAlign: 'center' }}>
         <div className="container">
-          <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+          <div style={{ maxWidth: '900px', margin: '0 auto' }}>
             <div style={{ fontSize: 'clamp(5rem, 15vw, 10rem)', fontWeight: 900, lineHeight: 1, background: 'linear-gradient(120deg, #ff7a18, #ffb800, #ff3d81)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent', marginBottom: '0.2em' }}>
-              {signupCount}
+              {signupCount.total}
             </div>
-            <div style={{ fontSize: 'clamp(1.3rem, 3vw, 1.8rem)', color: '#c8cfdd', fontWeight: 700, marginBottom: '0.5em' }}>
+            <div style={{ fontSize: 'clamp(1.3rem, 3vw, 1.8rem)', color: '#c8cfdd', fontWeight: 700, marginBottom: '1em' }}>
               People Already Joined
             </div>
-            <div style={{ fontSize: 'clamp(0.95rem, 1.5vw, 1.1rem)', color: '#9fa8bf' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'clamp(16px, 3vw, 24px)', marginTop: '2rem' }}>
+              <div style={{ padding: 'clamp(20px, 3vw, 28px)', borderRadius: '16px', border: '1px solid rgba(255,184,0,0.2)', background: 'rgba(255,184,0,0.05)' }}>
+                <div style={{ fontSize: 'clamp(2.5rem, 6vw, 4rem)', fontWeight: 900, color: '#ffb800', lineHeight: 1, marginBottom: '0.25em' }}>
+                  {signupCount.companies}
+                </div>
+                <div style={{ fontSize: 'clamp(1rem, 1.5vw, 1.1rem)', color: '#c8cfdd', fontWeight: 600 }}>
+                  Businesses Want In
+                </div>
+              </div>
+              <div style={{ padding: 'clamp(20px, 3vw, 28px)', borderRadius: '16px', border: '1px solid rgba(255,122,24,0.2)', background: 'rgba(255,122,24,0.05)' }}>
+                <div style={{ fontSize: 'clamp(2.5rem, 6vw, 4rem)', fontWeight: 900, color: '#ff7a18', lineHeight: 1, marginBottom: '0.25em' }}>
+                  {signupCount.individuals}
+                </div>
+                <div style={{ fontSize: 'clamp(1rem, 1.5vw, 1.1rem)', color: '#c8cfdd', fontWeight: 600 }}>
+                  Individual Builders
+                </div>
+              </div>
+            </div>
+            <div style={{ fontSize: 'clamp(0.95rem, 1.5vw, 1.1rem)', color: '#9fa8bf', marginTop: '2rem' }}>
               Join the movement to democratize AI infrastructure
             </div>
           </div>
         </div>
       </section>
-
       {/* The Startup Killer */}
       <section className="section killer">
         <div className="container">
