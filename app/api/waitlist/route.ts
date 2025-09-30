@@ -146,14 +146,21 @@ export async function POST(request: Request) {
 export async function GET() {
   try {
     await dbConnect();
-    const totalCount = await Waitlist.countDocuments();
-    const companyCount = await Waitlist.countDocuments({ audience: 'company' });
-    const individualCount = await Waitlist.countDocuments({ audience: 'app' });
+    
+    const results = await Waitlist.aggregate([
+      {
+        $facet: {
+          total: [{ $count: 'count' }],
+          companies: [{ $match: { audience: 'company' } }, { $count: 'count' }],
+          individuals: [{ $match: { audience: 'app' } }, { $count: 'count' }]
+        }
+      }
+    ]);
     
     return NextResponse.json({ 
-      total: totalCount,
-      companies: companyCount,
-      individuals: individualCount
+      total: results[0].total[0]?.count || 0,
+      companies: results[0].companies[0]?.count || 0,
+      individuals: results[0].individuals[0]?.count || 0
     });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to get count' }, { status: 500 });
