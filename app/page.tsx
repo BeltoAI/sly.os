@@ -183,14 +183,6 @@ export default function Home() {
         @keyframes sweep { to { transform: translateX(100%); } }
         @media (max-width: 820px) { .howx-wrap { flex-direction: column; gap: 16px; } .howx-conn { width: 6px; height: 60px; margin: -8px 0; } }
         
-        .no-bs { background: linear-gradient(180deg, transparent, rgba(255,184,0,0.02)); }
-        .no-bs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: clamp(12px, 2vw, 20px); margin: 2rem 0; }
-        .no-bs-item { padding: clamp(16px, 2.5vw, 24px); border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02); text-align: center; transition: all 0.2s; }
-        .no-bs-item:hover { background: rgba(255,255,255,0.04); border-color: rgba(255,184,0,0.3); }
-        .no-bs-icon { font-size: 2rem; margin-bottom: 0.5em; }
-        .no-bs-text { font-size: 0.95rem; color: #c8cfdd; font-weight: 600; }
-        .no-bs-item.yes { border-color: rgba(0,255,100,0.3); }
-        .no-bs-item.yes .no-bs-icon { color: #00ff88; }
         
         .promoX { padding: clamp(12px, 3vw, 24px) 0; }
         .promoX-card { position: relative; overflow: hidden; border-radius: 20px; background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015)); border: 1px solid rgba(255,255,255,0.14); }
@@ -557,18 +549,24 @@ export default function Home() {
       </section>
 
       {/* No BS Features */}
+      {/* No BS Features */}
       <section className="section no-bs">
         <div className="container">
-          <h2 className="grad" style={{ textAlign: 'center' }}>No Bullshit</h2>
+          <h2 className="grad" style={{ textAlign: "center" }}>No Bullshit</h2>
           <div className="no-bs-grid">
-            <div className="no-bs-item"><div className="no-bs-icon">❌</div><div className="no-bs-text">No minimum spend</div></div>
-            <div className="no-bs-item"><div className="no-bs-icon">❌</div><div className="no-bs-text">No credit card to test</div></div>
-            <div className="no-bs-item"><div className="no-bs-icon">❌</div><div className="no-bs-text">No surprise egress fees</div></div>
-            <div className="no-bs-item"><div className="no-bs-icon">❌</div><div className="no-bs-text">No vendor lock-in</div></div>
-            <div className="no-bs-item yes"><div className="no-bs-icon">✓</div><div className="no-bs-text">Pay per inference</div></div>
-            <div className="no-bs-item yes"><div className="no-bs-icon">✓</div><div className="no-bs-text">Cancel anytime</div></div>
-            <div className="no-bs-item yes"><div className="no-bs-icon">✓</div><div className="no-bs-text">Full API ownership</div></div>
-            <div className="no-bs-item yes"><div className="no-bs-icon">✓</div><div className="no-bs-text">Proof-verified outputs</div></div>
+            <div className="no-bs-row">
+              <div className="no-bs-item"><div className="no-bs-icon">❌</div><div className="no-bs-text">No minimum spend</div></div>
+              <div className="no-bs-item"><div className="no-bs-icon">❌</div><div className="no-bs-text">No credit card to test</div></div>
+              <div className="no-bs-item"><div className="no-bs-icon">❌</div><div className="no-bs-text">No surprise egress fees</div></div>
+              <div className="no-bs-item"><div className="no-bs-icon">❌</div><div className="no-bs-text">No vendor lock-in</div></div>
+            </div>
+            <div className="no-bs-separator"></div>
+            <div className="no-bs-row">
+              <div className="no-bs-item yes"><div className="no-bs-icon">✓</div><div className="no-bs-text">Pay per inference</div></div>
+              <div className="no-bs-item yes"><div className="no-bs-icon">✓</div><div className="no-bs-text">Cancel anytime</div></div>
+              <div className="no-bs-item yes"><div className="no-bs-icon">✓</div><div className="no-bs-text">Full API ownership</div></div>
+              <div className="no-bs-item yes"><div className="no-bs-icon">✓</div><div className="no-bs-text">Proof-verified outputs</div></div>
+            </div>
           </div>
         </div>
       </section>
