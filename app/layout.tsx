@@ -29,7 +29,10 @@ export const metadata: Metadata = {
     images: ['/SlyOS_Flame.png'],
   },
   icons: {
-    icon: '/favicon.png',
+    icon: [
+      { url: '/favicon.png', sizes: 'any' },
+      { url: '/SlyOS_Flame.png', sizes: '512x512', type: 'image/png' },
+    ],
     shortcut: '/favicon.png',
     apple: '/SlyOS_Flame.png',
   },
@@ -42,6 +45,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        <link rel="icon" href="/favicon.png" type="image/png" />
+        <link rel="apple-touch-icon" href="/SlyOS_Flame.png" />
+      </head>
       <body>{children}</body>
     </html>
   )
