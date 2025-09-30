@@ -361,6 +361,42 @@ export default function Home() {
         </div>
       </header>
 
+      {/* What is SlyOS - Explainer */}
+      <section className="section" style={{ padding: 'clamp(40px, 6vw, 60px) 0', background: 'linear-gradient(180deg, rgba(255,184,0,0.03), transparent)' }}>
+        <div className="container">
+          <h2 className="grad" style={{ textAlign: 'center', fontSize: 'clamp(1.5rem, 3vw, 2rem)', marginBottom: '0.5em' }}>What is SlyOS?</h2>
+          <p style={{ textAlign: 'center', color: '#9fa8bf', fontSize: 'clamp(0.95rem, 1.5vw, 1.1rem)', maxWidth: '700px', margin: '0 auto 2.5rem' }}>
+            Deploy AI models on a decentralized network of smartphones instead of renting overpriced GPUs from cloud giants.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'clamp(20px, 3vw, 32px)', maxWidth: '1100px', margin: '0 auto' }}>
+            <div style={{ position: 'relative', padding: 'clamp(28px, 4vw, 40px)', borderRadius: '20px', background: 'linear-gradient(135deg, rgba(255,122,24,0.08), rgba(255,184,0,0.05))', border: '1px solid rgba(255,184,0,0.2)', overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', top: '-20px', right: '-20px', width: '100px', height: '100px', background: 'radial-gradient(circle, rgba(255,184,0,0.15), transparent)', borderRadius: '50%', filter: 'blur(20px)' }}></div>
+              <div style={{ position: 'relative', fontSize: '3rem', marginBottom: '0.5em' }}>⚡</div>
+              <h3 style={{ color: '#ffb800', fontSize: 'clamp(1.2rem, 2vw, 1.4rem)', fontWeight: 700, marginBottom: '0.5em' }}>Deploy in 60 Seconds</h3>
+              <p style={{ color: '#c8cfdd', lineHeight: 1.6, fontSize: 'clamp(0.95rem, 1.3vw, 1.05rem)' }}>
+                Upload your GGUF models, configure redundancy, and get a production-ready API endpoint instantly. No DevOps required.
+              </p>
+            </div>
+            <div style={{ position: 'relative', padding: 'clamp(28px, 4vw, 40px)', borderRadius: '20px', background: 'linear-gradient(135deg, rgba(255,61,129,0.08), rgba(255,122,24,0.05))', border: '1px solid rgba(255,61,129,0.2)', overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', top: '-20px', right: '-20px', width: '100px', height: '100px', background: 'radial-gradient(circle, rgba(255,61,129,0.15), transparent)', borderRadius: '50%', filter: 'blur(20px)' }}></div>
+              <div style={{ position: 'relative', fontSize: '3rem', marginBottom: '0.5em' }}>🔗</div>
+              <h3 style={{ color: '#ff3d81', fontSize: 'clamp(1.2rem, 2vw, 1.4rem)', fontWeight: 700, marginBottom: '0.5em' }}>Decentralized & Verified</h3>
+              <p style={{ color: '#c8cfdd', lineHeight: 1.6, fontSize: 'clamp(0.95rem, 1.3vw, 1.05rem)' }}>
+                Runs on idle smartphones with 15x redundant validation. Every inference gets a cryptographic receipt proving correctness.
+              </p>
+            </div>
+            <div style={{ position: 'relative', padding: 'clamp(28px, 4vw, 40px)', borderRadius: '20px', background: 'linear-gradient(135deg, rgba(0,255,100,0.08), rgba(0,200,150,0.05))', border: '1px solid rgba(0,255,100,0.2)', overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', top: '-20px', right: '-20px', width: '100px', height: '100px', background: 'radial-gradient(circle, rgba(0,255,100,0.15), transparent)', borderRadius: '50%', filter: 'blur(20px)' }}></div>
+              <div style={{ position: 'relative', fontSize: '3rem', marginBottom: '0.5em' }}>💰</div>
+              <h3 style={{ color: '#00ff88', fontSize: 'clamp(1.2rem, 2vw, 1.4rem)', fontWeight: 700, marginBottom: '0.5em' }}>70% Lower Cost</h3>
+              <p style={{ color: '#c8cfdd', lineHeight: 1.6, fontSize: 'clamp(0.95rem, 1.3vw, 1.05rem)' }}>
+                Pay $0.03/M tokens instead of $0.10/M on AWS. No minimums, no egress fees, no surprise bills. Just pure usage-based pricing.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
 
       {/* Signup Counter */}
       <section className="section" style={{ padding: 'clamp(60px, 10vw, 100px) 0', background: 'linear-gradient(180deg, rgba(255,122,24,0.08), transparent)', textAlign: 'center' }}>
