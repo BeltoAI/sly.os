@@ -132,6 +132,11 @@ export default function Home() {
         .nav.open .navx-bars i:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
         .navx-scrim { position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 1000; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
         .nav.open .navx-scrim { opacity: 1; pointer-events: auto; }
+        .navx-close { position: absolute; top: 20px; right: 20px; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.03); border-radius: 12px; cursor: pointer; transition: all 0.2s; }
+        .navx-close:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.2); }
+        .navx-close::before, .navx-close::after { content: ""; position: absolute; width: 20px; height: 2px; background: #e7eaf5; border-radius: 2px; }
+        .navx-close::before { transform: rotate(45deg); }
+        .navx-close::after { transform: rotate(-45deg); }
         .navx-panel { position: fixed; top: 0; right: 0; width: 100%; max-width: 400px; height: 100vh; background: #06070a; z-index: 1001; transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.22,0.61,0.36,1); border-left: 1px solid rgba(255,255,255,0.1); padding: 24px; overflow-y: auto; }
         .nav.open .navx-panel { transform: translateX(0); }
         .navx-mobile { display: flex; flex-direction: column; gap: 4px; list-style: none; margin-top: 60px; }
@@ -330,6 +335,7 @@ export default function Home() {
             <li><a className="btn primary prominent" href="#waitlist">Start Free</a></li>
           </ul>
           <button className="navx-toggle" onClick={toggleMenu}>
+          <button className="navx-close" onClick={() => { setIsMenuOpen(false); document.body.style.overflow = ""; }} aria-label="Close menu"></button>
             <span className="navx-bars"><i></i><i></i><i></i></span>
           </button>
         </div>
