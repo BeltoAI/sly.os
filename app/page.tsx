@@ -124,9 +124,9 @@ export default function Home() {
         .nav.open .navx-bars i:nth-child(1) { transform: translateY(7px) rotate(45deg); }
         .nav.open .navx-bars i:nth-child(2) { opacity: 0; }
         .nav.open .navx-bars i:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
-        .navx-scrim { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 998; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
+        .navx-scrim { position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 1000; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
         .nav.open .navx-scrim { opacity: 1; pointer-events: auto; }
-        .navx-panel { position: fixed; top: 0; right: 0; width: 100%; max-width: 400px; height: 100vh; background: #06070a; z-index: 999; transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.22,0.61,0.36,1); border-left: 1px solid rgba(255,255,255,0.1); padding: 24px; overflow-y: auto; }
+        .navx-panel { position: fixed; top: 0; right: 0; width: 100%; max-width: 400px; height: 100vh; background: #06070a; z-index: 1001; transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.22,0.61,0.36,1); border-left: 1px solid rgba(255,255,255,0.1); padding: 24px; overflow-y: auto; }
         .nav.open .navx-panel { transform: translateX(0); }
         .navx-mobile { display: flex; flex-direction: column; gap: 4px; list-style: none; margin-top: 60px; }
         .navx-mobile a { display: block; padding: 16px 12px; font-size: 1.15rem; font-weight: 500; border-radius: 12px; }
@@ -324,6 +324,7 @@ export default function Home() {
             <li><a className="btn primary prominent" href="#waitlist">Start Free</a></li>
           </ul>
           <button className="navx-toggle" onClick={() => setIsMenuOpen(!isMenuOpen)}>
+    document.body.style.overflow = !isMenuOpen ? "hidden" : "";
             <span className="navx-bars"><i></i><i></i><i></i></span>
           </button>
         </div>
