@@ -13,6 +13,12 @@ export default function Home() {
   const [spotsLeft] = useState(23);
   const [signupCount, setSignupCount] = useState({ total: 0, companies: 0, individuals: 0 });
 
+  const toggleMenu = () => {
+    const newState = !isMenuOpen;
+    setIsMenuOpen(newState);
+    document.body.style.overflow = newState ? "hidden" : "";
+  };
+
   useEffect(() => {
     const hasSeenModal = sessionStorage.getItem('slyos_modal_seen');
     if (!hasSeenModal) {
@@ -323,22 +329,21 @@ export default function Home() {
             <li><a className="uline" href="#faqs">FAQs</a></li>
             <li><a className="btn primary prominent" href="#waitlist">Start Free</a></li>
           </ul>
-          <button className="navx-toggle" onClick={() => setIsMenuOpen(!isMenuOpen)}>
-    document.body.style.overflow = !isMenuOpen ? "hidden" : "";
+          <button className="navx-toggle" onClick={toggleMenu}>
             <span className="navx-bars"><i></i><i></i><i></i></span>
           </button>
         </div>
-        <div className="navx-scrim" onClick={() => setIsMenuOpen(false)}></div>
+        <div className="navx-scrim" onClick={() => { setIsMenuOpen(false); document.body.style.overflow = ""; }}></div>
         <aside className="navx-panel">
           <ul className="navx-mobile">
-            <li><a href="#how" onClick={() => setIsMenuOpen(false)}>How</a></li>
-            <li><a href="#demo" onClick={() => setIsMenuOpen(false)}>Demo</a></li>
-            <li><a href="#pricing" onClick={() => setIsMenuOpen(false)}>Pricing</a></li>
-            <li><a href="#mine" onClick={() => setIsMenuOpen(false)}>Mine SLY</a></li>
-            <li><a href="#who" onClick={() => setIsMenuOpen(false)}>Who</a></li>
-            <li><a href="#compare" onClick={() => setIsMenuOpen(false)}>Compare</a></li>
-            <li><a href="#faqs" onClick={() => setIsMenuOpen(false)}>FAQs</a></li>
-            <li><a className="btn primary prominent" href="#waitlist" onClick={() => setIsMenuOpen(false)}>Start Free</a></li>
+            <li><a href="#how" onClick={() => { setIsMenuOpen(false); document.body.style.overflow = ""; }}>How</a></li>
+            <li><a href="#demo" onClick={() => { setIsMenuOpen(false); document.body.style.overflow = ""; }}>Demo</a></li>
+            <li><a href="#pricing" onClick={() => { setIsMenuOpen(false); document.body.style.overflow = ""; }}>Pricing</a></li>
+            <li><a href="#mine" onClick={() => { setIsMenuOpen(false); document.body.style.overflow = ""; }}>Mine SLY</a></li>
+            <li><a href="#who" onClick={() => { setIsMenuOpen(false); document.body.style.overflow = ""; }}>Who</a></li>
+            <li><a href="#compare" onClick={() => { setIsMenuOpen(false); document.body.style.overflow = ""; }}>Compare</a></li>
+            <li><a href="#faqs" onClick={() => { setIsMenuOpen(false); document.body.style.overflow = ""; }}>FAQs</a></li>
+            <li><a className="btn primary prominent" href="#waitlist" onClick={() => { setIsMenuOpen(false); document.body.style.overflow = ""; }}>Start Free</a></li>
           </ul>
         </aside>
       </nav>
