@@ -335,13 +335,13 @@ export default function Home() {
             <li><a className="btn primary prominent" href="#waitlist">Start Free</a></li>
           </ul>
           <button className="navx-toggle" onClick={toggleMenu}>
-          <button className="navx-close" onClick={() => { setIsMenuOpen(false); document.body.style.overflow = ""; }} aria-label="Close menu"></button>
             <span className="navx-bars"><i></i><i></i><i></i></span>
           </button>
         </div>
         <div className="navx-scrim" onClick={() => { setIsMenuOpen(false); document.body.style.overflow = ""; }}></div>
         <aside className="navx-panel">
           <ul className="navx-mobile">
+          <button className="navx-close" onClick={() => { setIsMenuOpen(false); document.body.style.overflow = ""; }} aria-label="Close menu"></button>
             <li><a href="#how" onClick={() => { setIsMenuOpen(false); document.body.style.overflow = ""; }}>How</a></li>
             <li><a href="#demo" onClick={() => { setIsMenuOpen(false); document.body.style.overflow = ""; }}>Demo</a></li>
             <li><a href="#pricing" onClick={() => { setIsMenuOpen(false); document.body.style.overflow = ""; }}>Pricing</a></li>
