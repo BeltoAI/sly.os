@@ -9,6 +9,8 @@ const http = require('http');
 const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
+const { OAuth2Client } = require('google-auth-library');
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const transporter = nodemailer.createTransport({
   service: 'gmail',
@@ -175,6 +177,63 @@ app.post('/api/auth/login', async (req, res) => {
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Google OAuth sign-in
+app.post('/api/auth/google', async (req, res) => {
+  const { credential } = req.body;
+  if (!credential) {
+    return res.status(400).json({ error: 'Google credential required' });
+  }
+  try {
+    // Verify the Google ID token
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID
+    });
+    const payload = ticket.getPayload();
+    const email = payload.email;
+    const name = payload.name;
+    const picture = payload.picture;
+
+    // Check if user already exists
+    const existing = await db.query('SELECT u.*, o.name as org_name, o.api_key as org_api_key FROM users u JOIN organizations o ON u.organization_id = o.id WHERE u.email = $1', [email]);
+    if (existing.rows.length > 0) {
+      // User exists - log them in
+      const user = existing.rows[0];
+      await db.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
+      const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+      return res.json({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role, organization: { name: user.org_name, api_key: user.org_api_key } } });
+    }
+
+    // User doesn't exist - create organization and user
+    const orgName = name + "'s Organization";
+    const apiKey = 'sk_live_' + crypto.randomBytes(24).toString('hex');
+
+    // Create organization
+    const slug = orgName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + Date.now().toString(36);
+    const orgResult = await db.query(
+      'INSERT INTO organizations (name, slug, api_key) VALUES ($1, $2, $3) RETURNING *',
+      [orgName, slug, apiKey]
+    );
+    const org = orgResult.rows[0];
+
+    // Create user (without password for OAuth)
+    const userResult = await db.query(
+      'INSERT INTO users (email, password_hash, name, organization_id, role) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, name, role',
+      [email, 'oauth_' + crypto.randomBytes(16).toString('hex'), name, org.id, 'admin']
+    );
+    const user = userResult.rows[0];
+
+    const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+    res.status(201).json({
+      token,
+      user: { id: user.id, email: user.email, name: user.name, role: user.role, organization: { name: org.name, api_key: org.api_key } }
+    });
+  } catch (err) {
+    console.error('Google OAuth error:', err);
+    res.status(401).json({ error: 'Invalid Google credential' });
   }
 });
 
