@@ -11,6 +11,8 @@ const nodemailer = require('nodemailer');
 const crypto = require('crypto');
 const { OAuth2Client } = require('google-auth-library');
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const Stripe = require('stripe');
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 const transporter = nodemailer.createTransport({
   service: 'gmail',
@@ -70,6 +72,14 @@ db.query(`
   ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMP;
 `).catch(() => {});
 
+// Billing columns for Stripe integration
+db.query(`
+  ALTER TABLE organizations ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255);
+  ALTER TABLE organizations ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(50) DEFAULT 'trial';
+  ALTER TABLE organizations ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMP DEFAULT (NOW() + INTERVAL '30 days');
+  ALTER TABLE organizations ADD COLUMN IF NOT EXISTS stripe_subscription_id VARCHAR(255);
+`).catch(() => {});
+
 // CORS - production-ready
 const allowedOrigins = process.env.CORS_ORIGIN ?
   process.env.CORS_ORIGIN.split(',') :
@@ -85,6 +95,93 @@ app.use(cors({
   },
   credentials: true
 }));
+
+// Stripe webhook endpoint (must be before express.json() middleware)
+app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  let event;
+  try {
+    if (!webhookSecret) {
+      // If no webhook secret, skip signature verification (not recommended for production)
+      event = JSON.parse(req.body.toString());
+    } else {
+      event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+    }
+  } catch (err) {
+    console.error('Webhook signature verification failed:', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  try {
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object;
+        const orgId = session.metadata.org_id;
+        if (orgId) {
+          await db.query(
+            'UPDATE organizations SET stripe_customer_id = $1, stripe_subscription_id = $2, subscription_status = $3 WHERE id = $4',
+            [session.customer, session.subscription, 'active', orgId]
+          );
+          console.log(`Subscription activated for org ${orgId}`);
+        }
+        break;
+      }
+      case 'customer.subscription.updated': {
+        const subscription = event.data.object;
+        const orgResult = await db.query(
+          'SELECT id FROM organizations WHERE stripe_subscription_id = $1',
+          [subscription.id]
+        );
+        if (orgResult.rows.length > 0) {
+          await db.query(
+            'UPDATE organizations SET subscription_status = $1 WHERE id = $2',
+            [subscription.status, orgResult.rows[0].id]
+          );
+          console.log(`Subscription updated for org ${orgResult.rows[0].id}`);
+        }
+        break;
+      }
+      case 'customer.subscription.deleted': {
+        const subscription = event.data.object;
+        const orgResult = await db.query(
+          'SELECT id FROM organizations WHERE stripe_subscription_id = $1',
+          [subscription.id]
+        );
+        if (orgResult.rows.length > 0) {
+          await db.query(
+            'UPDATE organizations SET subscription_status = $1 WHERE id = $2',
+            ['canceled', orgResult.rows[0].id]
+          );
+          console.log(`Subscription canceled for org ${orgResult.rows[0].id}`);
+        }
+        break;
+      }
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object;
+        const orgResult = await db.query(
+          'SELECT id FROM organizations WHERE stripe_customer_id = $1',
+          [invoice.customer]
+        );
+        if (orgResult.rows.length > 0) {
+          await db.query(
+            'UPDATE organizations SET subscription_status = $1 WHERE id = $2',
+            ['past_due', orgResult.rows[0].id]
+          );
+          console.log(`Payment failed for org ${orgResult.rows[0].id}`);
+        }
+        break;
+      }
+      default:
+        console.log(`Unhandled event type: ${event.type}`);
+    }
+    res.json({ received: true });
+  } catch (err) {
+    console.error('Webhook handler error:', err);
+    res.status(500).json({ error: 'Webhook handler failed' });
+  }
+});
 
 app.use(express.json({ limit: '10mb' }));
 
@@ -121,6 +218,34 @@ async function authenticate(req, res, next) {
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid token' });
+  }
+}
+
+// Billing status check middleware
+async function checkBillingStatus(req, res, next) {
+  // Skip billing check for billing endpoints themselves
+  if (req.path.startsWith('/api/billing') || req.path.startsWith('/api/auth')) {
+    return next();
+  }
+
+  try {
+    const org = await db.query('SELECT subscription_status, trial_ends_at FROM organizations WHERE id = $1', [req.user.org_id]);
+    if (org.rows.length === 0) return next();
+
+    const { subscription_status, trial_ends_at } = org.rows[0];
+
+    // Allow if active subscription or trial hasn't expired
+    if (subscription_status === 'active') return next();
+    if (subscription_status === 'trial' && trial_ends_at && new Date(trial_ends_at) > new Date()) return next();
+
+    return res.status(402).json({
+      error: 'Subscription required',
+      message: 'Your free trial has expired. Please subscribe to continue using SlyOS.',
+      billing_url: '/dashboard/billing'
+    });
+  } catch (err) {
+    // Don't block on billing check errors
+    next();
   }
 }
 
@@ -482,7 +607,7 @@ app.put('/api/auth/organization', authenticate, async (req, res) => {
   }
 });
 
-app.post('/api/devices/register', authenticate, async (req, res) => {
+app.post('/api/devices/register', authenticate, checkBillingStatus, async (req, res) => {
   const { device_id, platform, os_version, total_memory_mb, cpu_cores, country } = req.body;
   if (!device_id || !platform) {
     return res.status(400).json({ error: 'device_id and platform required' });
@@ -502,7 +627,7 @@ app.post('/api/devices/register', authenticate, async (req, res) => {
   }
 });
 
-app.get('/api/devices', authenticate, async (req, res) => {
+app.get('/api/devices', authenticate, checkBillingStatus, async (req, res) => {
   try {
     const result = await db.query(`
       SELECT d.*, COUNT(dm.id) as model_count FROM devices d 
@@ -516,7 +641,7 @@ app.get('/api/devices', authenticate, async (req, res) => {
   }
 });
 
-app.get('/api/models', authenticate, async (req, res) => {
+app.get('/api/models', authenticate, checkBillingStatus, async (req, res) => {
   try {
     const result = await db.query(`
       SELECT m.*, COUNT(dm.id) as device_count, SUM(dm.total_inferences) as total_inferences
@@ -530,7 +655,7 @@ app.get('/api/models', authenticate, async (req, res) => {
   }
 });
 
-app.get('/api/analytics/overview', authenticate, async (req, res) => {
+app.get('/api/analytics/overview', authenticate, checkBillingStatus, async (req, res) => {
   try {
     const devices = await db.query('SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE last_seen > NOW() - INTERVAL \'24 hours\') as active FROM devices WHERE organization_id = $1', [req.user.org_id]);
 
@@ -583,7 +708,7 @@ app.get('/api/analytics/overview', authenticate, async (req, res) => {
   }
 });
 
-app.post('/api/telemetry', authenticate, async (req, res) => {
+app.post('/api/telemetry', authenticate, checkBillingStatus, async (req, res) => {
   const { device_id, model_id, event_type, latency_ms, tokens_generated, success = true } = req.body;
   try {
     const deviceResult = await db.query('SELECT id FROM devices WHERE device_id = $1 AND organization_id = $2', [device_id, req.user.org_id]);
@@ -612,6 +737,133 @@ app.post('/api/telemetry', authenticate, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed' });
+  }
+});
+
+// Billing endpoints
+app.post('/api/billing/create-checkout', authenticate, async (req, res) => {
+  try {
+    const orgResult = await db.query(
+      'SELECT id, name, stripe_customer_id FROM organizations WHERE id = $1',
+      [req.user.org_id]
+    );
+    if (orgResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Organization not found' });
+    }
+    const org = orgResult.rows[0];
+
+    // Get device count for organization
+    const deviceResult = await db.query(
+      'SELECT COUNT(*) as device_count FROM devices WHERE organization_id = $1',
+      [req.user.org_id]
+    );
+    const deviceCount = Math.max(parseInt(deviceResult.rows[0].device_count) || 1, 1);
+
+    // Create or retrieve Stripe customer
+    let customerId = org.stripe_customer_id;
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: req.user.email,
+        metadata: { org_id: org.id, org_name: org.name }
+      });
+      customerId = customer.id;
+      await db.query('UPDATE organizations SET stripe_customer_id = $1 WHERE id = $2', [customerId, org.id]);
+    }
+
+    // Check if organization has already had a trial
+    const orgBilling = await db.query(
+      'SELECT trial_ends_at FROM organizations WHERE id = $1',
+      [req.user.org_id]
+    );
+    const trialEndsAt = orgBilling.rows[0]?.trial_ends_at;
+    const shouldIncludeTrial = trialEndsAt && new Date(trialEndsAt) > new Date();
+
+    // Create checkout session
+    const session = await stripe.checkout.sessions.create({
+      customer: customerId,
+      mode: 'subscription',
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: 'SlyOS Subscription',
+              description: 'SlyOS Edge AI Platform - $10 per device per month'
+            },
+            unit_amount: 1000,
+            recurring: {
+              interval: 'month',
+              interval_count: 1
+            }
+          },
+          quantity: deviceCount
+        }
+      ],
+      ...(shouldIncludeTrial && { subscription_data: { trial_period_days: 30 } }),
+      success_url: (process.env.DASHBOARD_URL || 'https://dashboard.slyos.world') + '/dashboard/billing?success=true',
+      cancel_url: (process.env.DASHBOARD_URL || 'https://dashboard.slyos.world') + '/dashboard/billing?canceled=true',
+      metadata: { org_id: org.id }
+    });
+
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error('Checkout creation error:', err);
+    res.status(500).json({ error: 'Failed to create checkout session' });
+  }
+});
+
+app.get('/api/billing/status', authenticate, async (req, res) => {
+  try {
+    const orgResult = await db.query(
+      'SELECT subscription_status, trial_ends_at FROM organizations WHERE id = $1',
+      [req.user.org_id]
+    );
+    if (orgResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Organization not found' });
+    }
+    const org = orgResult.rows[0];
+
+    const deviceResult = await db.query(
+      'SELECT COUNT(*) as device_count FROM devices WHERE organization_id = $1',
+      [req.user.org_id]
+    );
+    const deviceCount = parseInt(deviceResult.rows[0].device_count) || 0;
+
+    const trialEndsAt = new Date(org.trial_ends_at);
+    const isTrialActive = org.subscription_status === 'trial' && trialEndsAt > new Date();
+
+    res.json({
+      subscription_status: org.subscription_status,
+      trial_ends_at: org.trial_ends_at,
+      device_count: deviceCount,
+      monthly_cost: deviceCount * 10,
+      is_trial_active: isTrialActive
+    });
+  } catch (err) {
+    console.error('Billing status error:', err);
+    res.status(500).json({ error: 'Failed to fetch billing status' });
+  }
+});
+
+app.post('/api/billing/portal', authenticate, async (req, res) => {
+  try {
+    const orgResult = await db.query(
+      'SELECT stripe_customer_id FROM organizations WHERE id = $1',
+      [req.user.org_id]
+    );
+    if (orgResult.rows.length === 0 || !orgResult.rows[0].stripe_customer_id) {
+      return res.status(404).json({ error: 'No Stripe customer found for this organization' });
+    }
+
+    const session = await stripe.billingPortal.sessions.create({
+      customer: orgResult.rows[0].stripe_customer_id,
+      return_url: (process.env.DASHBOARD_URL || 'https://dashboard.slyos.world') + '/dashboard/billing'
+    });
+
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error('Billing portal error:', err);
+    res.status(500).json({ error: 'Failed to create billing portal session' });
   }
 });
 

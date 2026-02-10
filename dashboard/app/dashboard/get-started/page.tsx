@@ -2,13 +2,12 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Copy, Check, ArrowLeft, ArrowRight, Rocket, Mic, Package, Terminal, Zap, Play, Cpu, HardDrive, Activity, BarChart3 } from 'lucide-react';
+import { Copy, Check, ArrowLeft, ArrowRight, Rocket, Download, Code2, Play, Zap, MessageCircle, Mic, Globe } from 'lucide-react';
 
 export default function GetStartedPage() {
   const router = useRouter();
   const [modelId, setModelId] = useState('');
   const [modelName, setModelName] = useState('');
-  const [config, setConfig] = useState<any>({});
   const [copiedStep, setCopiedStep] = useState<number | null>(null);
   const [user, setUser] = useState<any>({});
 
@@ -20,8 +19,6 @@ export default function GetStartedPage() {
     if (!savedModelId) { router.push('/dashboard/models'); return; }
     setModelId(savedModelId);
     setModelName(savedModelName || savedModelId);
-    const savedConfig = localStorage.getItem(`config-${savedModelId}`);
-    if (savedConfig) setConfig(JSON.parse(savedConfig));
 
     const u = localStorage.getItem('user');
     if (u) try { setUser(JSON.parse(u)); } catch {}
@@ -33,246 +30,274 @@ export default function GetStartedPage() {
     setTimeout(() => setCopiedStep(null), 2000);
   };
 
-  const isSTT = modelId.startsWith('voicecore');
-
   const installCode = `npm install @emilshirokikh/slyos-sdk`;
 
-  const initCode = `import SlyOS from '@emilshirokikh/slyos-sdk';
+  const simpleCode = `import SlyOS from '@emilshirokikh/slyos-sdk';
 
 const sdk = new SlyOS({
   apiKey: '${apiKey}',
-  onProgress: (event) => {
-    // Real-time progress: stage, progress %, message
-    const bar = '█'.repeat(Math.floor(event.progress / 5)).padEnd(20, '░');
-    console.log(\`[\${bar}] \${event.progress}% — \${event.message}\`);
-  },
-  onEvent: (event) => {
-    // Lifecycle events: auth, device_profiled, model_loaded, etc.
-    console.log(\`[EVENT] \${event.type}\`, event.data);
-  }
+  onProgress: (e) => console.log(\`[\${e.progress}%] \${e.message}\`)
 });
 
-// Initialize — profiles device, authenticates, registers
 const device = await sdk.initialize();
 console.log(\`Device: \${device.cpuCores} cores, \${Math.round(device.memoryMB / 1024)}GB RAM\`);
-console.log(\`Recommended: \${device.recommendedQuant.toUpperCase()} quantization, \${device.maxContextWindow} ctx\`);`;
 
-  const loadCode = `// Auto-selects best quantization for your device
 await sdk.loadModel('${modelId}');
 
-// Or manually specify quantization level
-// await sdk.loadModel('${modelId}', { quant: 'q4' });`;
-
-  const useCode = isSTT
-    ? `const text = await sdk.transcribe('${modelId}', './audio.wav', {
-  language: 'en'
-});
-console.log(text);`
-    : `const response = await sdk.generate('${modelId}', 'Hello!', {
-  temperature: ${config.temperature || 0.7},
-  maxTokens: ${config.maxTokens || 100},
-  topP: ${config.topP || 0.9}
-});
+const response = await sdk.generate('${modelId}', 'Say hi!');
 console.log(response);`;
 
-  const fullCode = isSTT
-    ? `import SlyOS from '@emilshirokikh/slyos-sdk';
+  const openaiCode = `import SlyOS from '@emilshirokikh/slyos-sdk';
 
-async function main() {
-  const sdk = new SlyOS({
-    apiKey: '${apiKey}',
-    onProgress: (e) => {
-      const bar = '█'.repeat(Math.floor(e.progress / 5)).padEnd(20, '░');
-      console.log(\`[\${bar}] \${e.progress}% — \${e.message}\`);
-    }
-  });
+const sdk = new SlyOS({
+  apiKey: '${apiKey}',
+  openaiCompatible: true
+});
 
-  // 1. Initialize — detects device, authenticates, registers
-  const device = await sdk.initialize();
-  console.log(\`\\nDevice: \${device.cpuCores} cores, \${Math.round(device.memoryMB / 1024)}GB RAM\`);
-  console.log(\`Quant: \${device.recommendedQuant.toUpperCase()}, Context: \${device.maxContextWindow}\\n\`);
+const response = await sdk.chatCompletion({
+  model: '${modelId}',
+  messages: [{ role: 'user', content: 'Hello!' }]
+});
 
-  // 2. Check if model can run on this device
-  const check = sdk.canRunModel('${modelId}');
-  if (!check.canRun) { console.error(check.reason); return; }
+console.log(response.choices[0].message.content);`;
 
-  // 3. Load model — auto-selects best quantization
-  await sdk.loadModel('${modelId}');
+  const browserCode = `// In your React component
+import SlyOS from '@emilshirokikh/slyos-sdk';
 
-  // 4. Transcribe
-  const text = await sdk.transcribe('${modelId}', './audio.wav', {
-    language: 'en'
-  });
+const sdk = new SlyOS({ apiKey: '${apiKey}' });
+await sdk.initialize();
+await sdk.loadModel('${modelId}');
 
-  console.log('\\nTranscription:', text);
-}
+const response = await sdk.generate('${modelId}', userMessage);`;
 
-main();`
-    : `import SlyOS from '@emilshirokikh/slyos-sdk';
+  const transcribeCode = `const text = await sdk.transcribe('${modelId}', './audio.wav');
+console.log('Transcribed:', text);`;
 
-async function main() {
-  const sdk = new SlyOS({
-    apiKey: '${apiKey}',
-    onProgress: (e) => {
-      const bar = '█'.repeat(Math.floor(e.progress / 5)).padEnd(20, '░');
-      console.log(\`[\${bar}] \${e.progress}% — \${e.message}\`);
-    }
-  });
+  const expectedOutput = `[  0%] Analyzing your computer...
+[ 20%] Found 8 cores and 16GB memory
+[ 40%] Checking API key...
+[ 60%] Ready! Downloading AI model...
+[ 80%] Got 2.4GB of the model
+[100%] Model loaded! Ready to use
 
-  // 1. Initialize — detects device, authenticates, registers
-  const device = await sdk.initialize();
-  console.log(\`\\nDevice: \${device.cpuCores} cores, \${Math.round(device.memoryMB / 1024)}GB RAM\`);
-  console.log(\`Quant: \${device.recommendedQuant.toUpperCase()}, Context: \${device.maxContextWindow}\\n\`);
+Device: 8 cores, 16GB RAM
 
-  // 2. Check if model can run on this device
-  const check = sdk.canRunModel('${modelId}');
-  if (!check.canRun) { console.error(check.reason); return; }
+[  0%] Starting first AI response...
+[ 20%] Thinking...
+[ 50%] Generating words...
+[100%] Done!
 
-  // 3. Load model — auto-selects best quantization
-  await sdk.loadModel('${modelId}');
-
-  // 4. Generate
-  const response = await sdk.generate('${modelId}', 'Hello!', {
-    temperature: ${config.temperature || 0.7},
-    maxTokens: ${config.maxTokens || 100},
-    topP: ${config.topP || 0.9}
-  });
-
-  console.log('\\nResponse:', response);
-}
-
-main();`;
-
-  const steps = [
-    { num: 1, title: 'Install the SDK', icon: Package, code: installCode, desc: 'Add SlyOS to your project' },
-    { num: 2, title: 'Initialize with Device Profiling', icon: Cpu, code: initCode, desc: 'Auto-detects RAM, CPU, storage → selects optimal quantization' },
-    { num: 3, title: 'Load Model (Auto-Quantized)', icon: Zap, code: loadCode, desc: `Downloads ${modelName} at the best precision for your device` },
-    { num: 4, title: isSTT ? 'Transcribe' : 'Generate', icon: Play, code: useCode, desc: isSTT ? 'Transcribe audio to text with progress tracking' : 'Generate your first response with progress tracking' },
-  ];
+Response: Hi there! How can I help you today?`;
 
   return (
-    <div className="max-w-3xl mx-auto animate-fade-in">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-[#EDEDED]">Get Started with {modelName}</h1>
-        <p className="text-sm text-[#888888] mt-2">
-          {isSTT ? 'From install to transcription in 4 steps' : 'From install to first response in 4 steps'}
-        </p>
-      </div>
-
-      {/* What's New Banner */}
-      <div className="mb-6 backdrop-blur-xl bg-[rgba(74,222,128,0.05)] border border-[rgba(74,222,128,0.2)] rounded-2xl p-5">
-        <div className="flex items-center gap-2.5 mb-3">
-          <Activity className="w-4.5 h-4.5 text-[#4ade80]" />
-          <h3 className="text-sm font-semibold text-[#4ade80]">v1.2 — Smart Device Optimization</h3>
+    <div className="max-w-4xl mx-auto animate-fade-in">
+      {/* Header */}
+      <div className="mb-12">
+        <div className="flex items-center gap-3 mb-2">
+          <Rocket className="w-6 h-6 text-[#FF4D00]" />
+          <h1 className="text-4xl font-bold text-[#EDEDED]">Get Started in 3 Steps</h1>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {[
-            { icon: BarChart3, label: 'Progress Bars', desc: 'Real-time download & inference tracking' },
-            { icon: Cpu, label: 'Device Profiling', desc: 'Auto-detects RAM, CPU, storage' },
-            { icon: HardDrive, label: 'Auto Quantization', desc: 'Picks Q4/Q8/FP16 for your device' },
-            { icon: Terminal, label: 'Smart Context', desc: 'Context window sized to your RAM' },
-          ].map(({ icon: Icon, label, desc }) => (
-            <div key={label} className="p-3 rounded-xl bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)]">
-              <Icon className="w-4 h-4 text-[#4ade80] mb-1.5" />
-              <div className="text-[11px] font-semibold text-[#EDEDED]">{label}</div>
-              <div className="text-[10px] text-[#666666] mt-0.5">{desc}</div>
-            </div>
-          ))}
-        </div>
+        <p className="text-[#888888] mt-2">Your first AI app will be running in about 5 minutes</p>
       </div>
 
-      {/* Step-by-step */}
-      <div className="space-y-4 mb-8">
-        {steps.map(({ num, title, icon: Icon, code, desc }) => (
-          <div key={num} className="backdrop-blur-xl bg-[#0A0A0A]/80 border border-[rgba(255,255,255,0.08)] rounded-2xl overflow-hidden">
-            <div className="p-6">
-              <div className="flex items-center gap-3 mb-1">
-                <span className="w-7 h-7 rounded-lg bg-[#FF4D00] text-white text-xs flex items-center justify-center font-bold">{num}</span>
-                <Icon className="w-4 h-4 text-[#888888]" />
-                <h4 className="text-sm font-semibold text-[#EDEDED]">{title}</h4>
-              </div>
-              <p className="text-xs text-[#666666] ml-10 mb-4">{desc}</p>
-              <div className="bg-[#050505] border border-[rgba(255,255,255,0.06)] rounded-lg p-4 font-mono text-xs text-[#4ade80] overflow-x-auto mb-3 whitespace-pre leading-relaxed">
-                {code}
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="gap-1.5 text-[#FF4D00] hover:bg-[#FF4D00]/10"
-                onClick={() => copyCode(code, num)}
-              >
-                {copiedStep === num ? <><Check className="w-3.5 h-3.5" /> Copied</> : <><Copy className="w-3.5 h-3.5" /> Copy</>}
-              </Button>
-            </div>
+      {/* STEP 1: Install */}
+      <div className="backdrop-blur-xl bg-[#0A0A0A]/80 border border-[rgba(255,77,0,0.2)] rounded-2xl overflow-hidden mb-8">
+        <div className="p-8">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 rounded-full bg-[#FF4D00] text-white flex items-center justify-center font-bold text-lg">1</div>
+            <h2 className="text-2xl font-bold text-[#EDEDED]">Install the SDK</h2>
           </div>
-        ))}
-      </div>
+          <p className="text-[#888888] ml-16 mb-6">Open your terminal and paste this command</p>
 
-      {/* Full example */}
-      <div className="backdrop-blur-xl bg-[#0A0A0A]/80 border border-[rgba(255,77,0,0.2)] rounded-2xl overflow-hidden mb-6">
-        <div className="p-6">
-          <div className="flex items-center gap-2.5 mb-4">
-            {isSTT ? <Mic className="w-5 h-5 text-[#FF4D00]" /> : <Rocket className="w-5 h-5 text-[#FF4D00]" />}
-            <h3 className="text-base font-semibold text-[#EDEDED]">Complete Working Example</h3>
-            <span className="text-[10px] bg-[#FF4D00]/20 text-[#FF4D00] px-2 py-1 rounded-lg font-semibold">Copy & Run</span>
+          <div className="ml-16 bg-[#050505] border border-[rgba(255,255,255,0.06)] rounded-xl p-4 font-mono text-sm text-[#4ade80] overflow-x-auto mb-4 whitespace-pre leading-relaxed">
+            {installCode}
           </div>
-          <p className="text-xs text-[#888888] mb-4">Includes device profiling, auto-quantization, progress bars, and feasibility check</p>
-          <div className="bg-[#050505] border border-[rgba(255,255,255,0.06)] rounded-lg p-4 font-mono text-xs text-[#4ade80] overflow-x-auto mb-4 whitespace-pre leading-relaxed">
-            {fullCode}
-          </div>
+
           <Button
-            className="gap-2 bg-[#FF4D00] hover:bg-[#E84300] text-white border-0"
-            onClick={() => copyCode(fullCode, 99)}
+            variant="ghost"
+            size="sm"
+            className="ml-16 gap-2 text-[#FF4D00] hover:bg-[#FF4D00]/10"
+            onClick={() => copyCode(installCode, 1)}
           >
-            {copiedStep === 99 ? <><Check className="w-4 h-4" /> Copied</> : <><Copy className="w-4 h-4" /> Copy Full Example</>}
+            {copiedStep === 1 ? <><Check className="w-4 h-4" /> Copied!</> : <><Copy className="w-4 h-4" /> Copy Command</>}
           </Button>
-        </div>
-      </div>
 
-      {/* Expected Output Preview */}
-      <div className="backdrop-blur-xl bg-[#0A0A0A]/80 border border-[rgba(255,255,255,0.08)] rounded-2xl overflow-hidden mb-6">
-        <div className="p-6">
-          <div className="flex items-center gap-2.5 mb-4">
-            <Terminal className="w-5 h-5 text-[#888888]" />
-            <h3 className="text-base font-semibold text-[#EDEDED]">Expected Terminal Output</h3>
-          </div>
-          <div className="bg-[#050505] border border-[rgba(255,255,255,0.06)] rounded-lg p-4 font-mono text-xs text-[#AAAAAA] overflow-x-auto whitespace-pre leading-relaxed">
-{`[████░░░░░░░░░░░░░░░░]  20% — Detected: 10 CPU cores, 16GB RAM, 234GB storage
-[████████░░░░░░░░░░░░]  40% — Authenticating with API key...
-[████████████░░░░░░░░]  60% — Authenticated successfully
-[██████████████░░░░░░]  70% — Registering device...
-[████████████████████] 100% — SlyOS ready — recommended quantization: FP16
-
-Device: 10 cores, 16GB RAM
-Quant: FP16, Context: 8192
-
-[░░░░░░░░░░░░░░░░░░░░]   0% — Auto-selected FP16 quantization for your device
-[░░░░░░░░░░░░░░░░░░░░]   0% — Downloading ${modelId} (FP16, ~3400MB)...
-[██░░░░░░░░░░░░░░░░░░]  12% — Downloading: 408MB / 3400MB
-[████████░░░░░░░░░░░░]  45% — Downloading: 1530MB / 3400MB
-[██████████████░░░░░░]  78% — Downloading: 2652MB / 3400MB
-[████████████████████] 100% — ${modelId} loaded (FP16, 42.3s, ctx: 8192)
-
-[████████████████████] 100% — Generated 23 tokens in 4.2s (5.5 tok/s)
-
-Response: Hello! I'm a helpful AI assistant...`}
+          <div className="mt-6 ml-16 p-4 bg-[rgba(74,222,128,0.05)] border border-[rgba(74,222,128,0.2)] rounded-lg">
+            <p className="text-sm text-[#EDEDED]">What to expect</p>
+            <p className="text-xs text-[#888888] mt-2">Your terminal will show status messages. When done, you'll see "added X packages" - that's success!</p>
           </div>
         </div>
       </div>
 
+      {/* STEP 2: Create App */}
+      <div className="backdrop-blur-xl bg-[#0A0A0A]/80 border border-[rgba(255,255,255,0.08)] rounded-2xl overflow-hidden mb-8">
+        <div className="p-8">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 rounded-full bg-[#FF4D00] text-white flex items-center justify-center font-bold text-lg">2</div>
+            <h2 className="text-2xl font-bold text-[#EDEDED]">Create Your First App</h2>
+          </div>
+          <p className="text-[#888888] ml-16 mb-6">Create a file called <code className="bg-[#050505] px-2 py-1 rounded text-[#4ade80]">app.mjs</code> and paste this:</p>
+
+          <div className="ml-16 bg-[#050505] border border-[rgba(255,255,255,0.06)] rounded-xl p-4 font-mono text-xs text-[#4ade80] overflow-x-auto mb-4 whitespace-pre leading-relaxed">
+            {simpleCode}
+          </div>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-16 gap-2 text-[#FF4D00] hover:bg-[#FF4D00]/10"
+            onClick={() => copyCode(simpleCode, 2)}
+          >
+            {copiedStep === 2 ? <><Check className="w-4 h-4" /> Copied!</> : <><Copy className="w-4 h-4" /> Copy Code</>}
+          </Button>
+
+          <div className="mt-6 ml-16 p-4 bg-[rgba(74,222,128,0.05)] border border-[rgba(74,222,128,0.2)] rounded-lg">
+            <p className="text-sm text-[#EDEDED]">What this code does</p>
+            <ul className="text-xs text-[#888888] mt-2 space-y-1">
+              <li>• Checks your computer's specs (cores, memory)</li>
+              <li>• Authenticates with your API key</li>
+              <li>• Downloads the AI model (one-time only)</li>
+              <li>• Generates a response from your question</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      {/* STEP 3: Run It */}
+      <div className="backdrop-blur-xl bg-[#0A0A0A]/80 border border-[rgba(255,255,255,0.08)] rounded-2xl overflow-hidden mb-8">
+        <div className="p-8">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 rounded-full bg-[#FF4D00] text-white flex items-center justify-center font-bold text-lg">3</div>
+            <h2 className="text-2xl font-bold text-[#EDEDED]">Run Your App</h2>
+          </div>
+          <p className="text-[#888888] ml-16 mb-6">In the same folder as your file, run:</p>
+
+          <div className="ml-16 bg-[#050505] border border-[rgba(255,255,255,0.06)] rounded-xl p-4 font-mono text-sm text-[#4ade80] overflow-x-auto mb-4 whitespace-pre leading-relaxed">
+            node app.mjs
+          </div>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-16 gap-2 text-[#FF4D00] hover:bg-[#FF4D00]/10"
+            onClick={() => copyCode('node app.mjs', 3)}
+          >
+            {copiedStep === 3 ? <><Check className="w-4 h-4" /> Copied!</> : <><Copy className="w-4 h-4" /> Copy Command</>}
+          </Button>
+
+          <div className="mt-6 ml-16 p-4 bg-[rgba(74,222,128,0.05)] border border-[rgba(74,222,128,0.2)] rounded-lg">
+            <p className="text-sm text-[#EDEDED]">Here's what you'll see:</p>
+            <div className="bg-[#050505] border border-[rgba(255,255,255,0.06)] rounded-lg p-3 font-mono text-xs text-[#AAAAAA] mt-3 whitespace-pre leading-relaxed overflow-x-auto">
+              {expectedOutput}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* SDK Persistence Info */}
+      <div className="backdrop-blur-xl bg-[rgba(255,77,0,0.05)] border border-[rgba(255,77,0,0.2)] rounded-2xl overflow-hidden mb-8">
+        <div className="p-8">
+          <h3 className="text-lg font-bold text-[#EDEDED] mb-4">What Happens When I Close My App?</h3>
+          <div className="space-y-3 text-sm">
+            <div className="flex gap-3">
+              <Download className="w-5 h-5 text-[#FF4D00] flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-[#EDEDED] font-semibold">Models are saved on your computer</p>
+                <p className="text-[#888888]">After the first download (~900MB), the model stays on your disk. It's not deleted when you close the app.</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Zap className="w-5 h-5 text-[#FF4D00] flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-[#EDEDED] font-semibold">Restarting is super fast</p>
+                <p className="text-[#888888]">Next time you run your app, it only takes a few seconds to start. No re-downloading needed.</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Play className="w-5 h-5 text-[#FF4D00] flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-[#EDEDED] font-semibold">The SDK runs with your app</p>
+                <p className="text-[#888888]">When your app is running, the SDK runs. When you stop your app, the SDK stops too.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* What's Next */}
+      <div className="mb-8">
+        <h3 className="text-xl font-bold text-[#EDEDED] mb-4">What's Next?</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* OpenAI Format */}
+          <div className="backdrop-blur-xl bg-[#0A0A0A]/80 border border-[rgba(255,255,255,0.08)] rounded-2xl p-6">
+            <div className="flex items-center gap-2 mb-3">
+              <MessageCircle className="w-5 h-5 text-[#FF4D00]" />
+              <h4 className="font-bold text-[#EDEDED]">Use OpenAI Format</h4>
+            </div>
+            <p className="text-xs text-[#888888] mb-4">Drop-in replacement for OpenAI's API. Your code stays the same.</p>
+            <div className="bg-[#050505] border border-[rgba(255,255,255,0.06)] rounded-lg p-3 font-mono text-[10px] text-[#4ade80] overflow-x-auto whitespace-pre leading-relaxed mb-3">
+              {openaiCode}
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full gap-1.5 text-[#FF4D00] hover:bg-[#FF4D00]/10"
+              onClick={() => copyCode(openaiCode, 10)}
+            >
+              {copiedStep === 10 ? <><Check className="w-3.5 h-3.5" /> Copied</> : <><Copy className="w-3.5 h-3.5" /> Copy</>}
+            </Button>
+          </div>
+
+          {/* Browser */}
+          <div className="backdrop-blur-xl bg-[#0A0A0A]/80 border border-[rgba(255,255,255,0.08)] rounded-2xl p-6">
+            <div className="flex items-center gap-2 mb-3">
+              <Globe className="w-5 h-5 text-[#FF4D00]" />
+              <h4 className="font-bold text-[#EDEDED]">Add to Your Website</h4>
+            </div>
+            <p className="text-xs text-[#888888] mb-4">Run AI directly in the browser with WebAssembly.</p>
+            <div className="bg-[#050505] border border-[rgba(255,255,255,0.06)] rounded-lg p-3 font-mono text-[10px] text-[#4ade80] overflow-x-auto whitespace-pre leading-relaxed mb-3">
+              {browserCode}
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full gap-1.5 text-[#FF4D00] hover:bg-[#FF4D00]/10"
+              onClick={() => copyCode(browserCode, 11)}
+            >
+              {copiedStep === 11 ? <><Check className="w-3.5 h-3.5" /> Copied</> : <><Copy className="w-3.5 h-3.5" /> Copy</>}
+            </Button>
+          </div>
+
+          {/* Speech-to-Text */}
+          <div className="backdrop-blur-xl bg-[#0A0A0A]/80 border border-[rgba(255,255,255,0.08)] rounded-2xl p-6">
+            <div className="flex items-center gap-2 mb-3">
+              <Mic className="w-5 h-5 text-[#FF4D00]" />
+              <h4 className="font-bold text-[#EDEDED]">Speech to Text</h4>
+            </div>
+            <p className="text-xs text-[#888888] mb-4">Transcribe audio files directly on your computer.</p>
+            <div className="bg-[#050505] border border-[rgba(255,255,255,0.06)] rounded-lg p-3 font-mono text-[10px] text-[#4ade80] overflow-x-auto whitespace-pre leading-relaxed mb-3">
+              {transcribeCode}
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full gap-1.5 text-[#FF4D00] hover:bg-[#FF4D00]/10"
+              onClick={() => copyCode(transcribeCode, 12)}
+            >
+              {copiedStep === 12 ? <><Check className="w-3.5 h-3.5" /> Copied</> : <><Copy className="w-3.5 h-3.5" /> Copy</>}
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Footer Actions */}
       <div className="flex gap-3">
         <Button
           variant="outline"
-          onClick={() => router.push('/dashboard/configure')}
-          className="flex-1 h-10 bg-transparent border-[rgba(255,255,255,0.1)] text-[#EDEDED] hover:bg-[rgba(255,255,255,0.05)] gap-2"
-        >
-          <ArrowLeft className="w-4 h-4" /> Back
-        </Button>
-        <Button
           onClick={() => router.push('/dashboard')}
-          className="flex-1 h-10 bg-[#FF4D00] hover:bg-[#E84300] text-white border-0 gap-2"
+          className="flex-1 h-11 bg-transparent border-[rgba(255,255,255,0.1)] text-[#EDEDED] hover:bg-[rgba(255,255,255,0.05)] gap-2"
         >
-          Go to Dashboard <ArrowRight className="w-4 h-4" />
+          <ArrowLeft className="w-4 h-4" /> Back to Dashboard
         </Button>
       </div>
     </div>

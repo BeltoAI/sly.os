@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import {
-  LayoutDashboard, Smartphone, Bot, Key, BookOpen, Settings, LogOut, Flame, ChevronRight
+  LayoutDashboard, Smartphone, Bot, Key, BookOpen, Settings, LogOut, Flame, ChevronRight, CreditCard
 } from 'lucide-react';
 
 const navItems = [
@@ -13,6 +13,7 @@ const navItems = [
   { href: '/dashboard/models', label: 'Models', icon: Bot },
   { href: '/dashboard/api-keys', label: 'API Keys', icon: Key },
   { href: '/dashboard/integration', label: 'Integration', icon: BookOpen },
+  { href: '/dashboard/billing', label: 'Billing', icon: CreditCard },
   { href: '/dashboard/settings', label: 'Settings', icon: Settings },
 ];
 

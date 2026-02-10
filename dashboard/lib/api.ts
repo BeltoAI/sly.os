@@ -98,4 +98,19 @@ export const googleAuth = async (credential: string) => {
   return response.data;
 };
 
+export const getBillingStatus = async () => {
+  const response = await api.get('/billing/status');
+  return response.data;
+};
+
+export const createCheckout = async () => {
+  const response = await api.post('/billing/create-checkout');
+  return response.data;
+};
+
+export const openBillingPortal = async () => {
+  const response = await api.post('/billing/portal');
+  return response.data;
+};
+
 export default api;
