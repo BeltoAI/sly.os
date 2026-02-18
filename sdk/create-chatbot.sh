@@ -229,8 +229,8 @@ const rl = readline.createInterface({
   terminal: true
 });
 
-// Store conversation history
-let conversationHistory = [];
+// Note: conversation history is not used for generation with small models
+// They work better with single prompts
 
 /**
  * Print welcome banner
@@ -260,33 +260,22 @@ function printWelcome() {
  */
 async function sendMessage(userMessage) {
   try {
-    // Add user message to history
-    conversationHistory.push({
-      role: 'user',
-      content: userMessage
-    });
-
-    // Build prompt from conversation history
-    const prompt = conversationHistory
-      .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
-      .join('\n') + '\nAssistant:';
-
-    // Call SDK generate method
+    // Call SDK generate — send just the user's message (small models don't handle chat history well)
     console.log(`${colors.dim}Thinking...${colors.reset}`);
-    const response = await sdk.generate(config.model, prompt);
+    const response = await sdk.generate(config.model, userMessage);
 
     // Extract response text
-    const assistantMessage = typeof response === 'string'
+    let assistantMessage = typeof response === 'string'
       ? response
       : response?.content || response?.text || response?.choices?.[0]?.message?.content || JSON.stringify(response);
 
-    // Add assistant response to history
-    conversationHistory.push({
-      role: 'assistant',
-      content: assistantMessage
-    });
+    // Clean up: strip any echoed "User:" / "Assistant:" prefixes the model might add
+    assistantMessage = assistantMessage
+      .replace(/^(User|Assistant|Human|AI):\s*/gim, '')
+      .replace(/\n(User|Assistant|Human|AI):\s*.*/gm, '')
+      .trim();
 
-    // Display response with formatting
+    // Display response
     console.log(`\n${colors.bright}${colors.magenta}AI:${colors.reset} ${assistantMessage}\n`);
   } catch (error) {
     console.error(`\n${colors.red}Error:${colors.reset} ${error.message}\n`);
@@ -313,8 +302,9 @@ function promptUser() {
     }
 
     if (message.toLowerCase() === 'clear') {
-      conversationHistory = [];
-      console.log(`${colors.green}✓ Conversation history cleared${colors.reset}\n`);
+      console.clear();
+      printWelcome();
+      console.log(`${colors.green}✓ Screen cleared${colors.reset}\n`);
       promptUser();
       return;
     }
