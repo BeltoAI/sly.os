@@ -94,12 +94,14 @@ print_header
 
 # Prompt for API key if not provided
 if [ -z "$API_KEY" ]; then
-  print_step "Enter your Slyos API key (or press Enter for placeholder)"
-  read -r -p "  API Key: " API_KEY
+  if [ -t 0 ]; then
+    print_step "Enter your Slyos API key (or press Enter for placeholder)"
+    read -r -p "  API Key: " API_KEY
+  fi
 
   if [ -z "$API_KEY" ]; then
     API_KEY="YOUR_API_KEY"
-    print_info "Using placeholder API key: ${YELLOW}$API_KEY${NC}"
+    print_info "Using placeholder API key — set SLYOS_API_KEY in .env later"
   else
     print_success "API key configured"
   fi
@@ -109,25 +111,35 @@ fi
 
 # Confirm model selection
 print_step "AI Model Configuration"
-echo "  Current model: ${YELLOW}$MODEL${NC}"
-read -p "  Use this model? (y/n, default: y): " -r -n 1
-echo
-if [[ ! $REPLY =~ ^[Yy]?$ ]]; then
-  read -p "  Enter model name: " -r MODEL
+echo -e "  Current model: ${YELLOW}${MODEL}${NC}"
+
+# Only prompt interactively if stdin is a terminal (not piped)
+if [ -t 0 ]; then
+  read -p "  Use this model? (y/n, default: y): " -r -n 1
+  echo
+  if [[ ! $REPLY =~ ^[Yy]?$ ]]; then
+    read -p "  Enter model name: " -r MODEL
+  fi
 fi
-print_success "Model configured: ${YELLOW}$MODEL${NC}"
+print_success "Model configured: ${YELLOW}${MODEL}${NC}"
 
 # Check if project already exists
 if [ -d "$PROJECT_NAME" ]; then
-  print_error "Project folder '$PROJECT_NAME' already exists!"
-  read -p "  Remove existing folder and continue? (y/n): " -r -n 1
-  echo
-  if [[ $REPLY =~ ^[Yy]$ ]]; then
+  if [ -t 0 ]; then
+    print_error "Project folder '$PROJECT_NAME' already exists!"
+    read -p "  Remove existing folder and continue? (y/n): " -r -n 1
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      rm -rf "$PROJECT_NAME"
+      print_success "Existing folder removed"
+    else
+      print_error "Setup cancelled"
+      exit 1
+    fi
+  else
+    # Non-interactive: auto-remove
     rm -rf "$PROJECT_NAME"
     print_success "Existing folder removed"
-  else
-    print_error "Setup cancelled"
-    exit 1
   fi
 fi
 
@@ -175,7 +187,7 @@ cat > app.mjs << 'CHATBOT_EOF'
 #!/usr/bin/env node
 
 import readline from 'readline';
-import { SlyosSDK } from '@emilshirokikh/slyos-sdk';
+import SlyOS from '@emilshirokikh/slyos-sdk';
 
 // Color codes for terminal output
 const colors = {
@@ -197,13 +209,12 @@ const config = {
   server: process.env.SLYOS_SERVER || 'https://slyos-prod.eba-qjz3cmgq.us-east-2.elasticbeanstalk.com'
 };
 
-// Initialize Slyos SDK
+// Initialize SlyOS SDK
 let sdk;
 try {
-  sdk = new SlyosSDK({
+  sdk = new SlyOS({
     apiKey: config.apiKey,
-    model: config.model,
-    baseURL: config.server
+    onProgress: (e) => console.log(`${colors.dim}[${e.progress}%] ${e.message}${colors.reset}`)
   });
 } catch (error) {
   console.error(`${colors.red}Error initializing SDK:${colors.reset}`, error.message);
@@ -254,15 +265,19 @@ async function sendMessage(userMessage) {
       content: userMessage
     });
 
+    // Build prompt from conversation history
+    const prompt = conversationHistory
+      .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+      .join('\n') + '\nAssistant:';
+
     // Call SDK generate method
-    const response = await sdk.generate({
-      messages: conversationHistory,
-      temperature: 0.7,
-      maxTokens: 1024
-    });
+    console.log(`${colors.dim}Thinking...${colors.reset}`);
+    const response = await sdk.generate(config.model, prompt);
 
     // Extract response text
-    const assistantMessage = response.content || response.text || response;
+    const assistantMessage = typeof response === 'string'
+      ? response
+      : response?.content || response?.text || response?.choices?.[0]?.message?.content || JSON.stringify(response);
 
     // Add assistant response to history
     conversationHistory.push({
@@ -271,11 +286,9 @@ async function sendMessage(userMessage) {
     });
 
     // Display response with formatting
-    console.log(`\n${colors.bright}${colors.magenta}Assistant:${colors.reset}`);
-    console.log(`${colors.dim}${assistantMessage}${colors.reset}\n`);
+    console.log(`\n${colors.bright}${colors.magenta}AI:${colors.reset} ${assistantMessage}\n`);
   } catch (error) {
-    console.error(`\n${colors.red}Error generating response:${colors.reset}`);
-    console.error(`${colors.dim}${error.message}${colors.reset}\n`);
+    console.error(`\n${colors.red}Error:${colors.reset} ${error.message}\n`);
   }
 }
 
@@ -316,6 +329,22 @@ function promptUser() {
  */
 async function main() {
   printWelcome();
+
+  try {
+    console.log(`${colors.cyan}Initializing SlyOS...${colors.reset}`);
+    await sdk.initialize();
+
+    console.log(`${colors.cyan}Loading model: ${config.model}...${colors.reset}`);
+    await sdk.loadModel(config.model);
+
+    console.log(`${colors.green}Ready! Start chatting below.${colors.reset}\n`);
+    console.log(`${colors.bright}${colors.cyan}─────────────────────────────────────────────────────────────${colors.reset}\n`);
+  } catch (error) {
+    console.error(`${colors.red}Failed to initialize: ${error.message}${colors.reset}`);
+    console.error(`${colors.dim}Make sure your API key is correct and you have internet access.${colors.reset}`);
+    process.exit(1);
+  }
+
   promptUser();
 }
 
@@ -472,9 +501,7 @@ echo ""
 echo -e "${GREEN}Ready to chat! 🚀${NC}"
 echo ""
 
-# Auto-run the chatbot (optional - uncomment to enable)
-# read -p "Start chatbot now? (y/n, default: y): " -r -n 1
-# echo
-# if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-#   npm start
-# fi
+# Auto-run the chatbot
+echo -e "${CYAN}Starting chatbot...${NC}"
+echo ""
+npm start
