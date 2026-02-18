@@ -174,11 +174,11 @@ cat > package.json << 'EOF'
 EOF
 print_success "Package configuration updated"
 
-# Install Slyos SDK
-print_step "Installing @emilshirokikh/slyos-sdk"
+# Install Slyos SDK + dotenv
+print_step "Installing dependencies"
 print_info "This may take a moment..."
-npm install @emilshirokikh/slyos-sdk > /dev/null 2>&1
-print_success "Slyos SDK installed"
+npm install @emilshirokikh/slyos-sdk dotenv > /dev/null 2>&1
+print_success "Dependencies installed"
 
 # Create the chatbot application
 print_step "Creating interactive chatbot application: ${CYAN}app.mjs${NC}"
@@ -186,6 +186,7 @@ print_step "Creating interactive chatbot application: ${CYAN}app.mjs${NC}"
 cat > app.mjs << 'CHATBOT_EOF'
 #!/usr/bin/env node
 
+import 'dotenv/config';
 import readline from 'readline';
 import SlyOS from '@emilshirokikh/slyos-sdk';
 
