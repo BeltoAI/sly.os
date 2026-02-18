@@ -110,8 +110,10 @@ export default function BillingPage() {
   const isActive = billingStatus?.subscription_status === 'active';
   const isExpired = billingStatus?.subscription_status === 'expired' || billingStatus?.subscription_status === 'canceled';
   const deviceCount = billingStatus?.device_count || 0;
+  const enabledDevices = billingStatus?.enabled_devices || deviceCount;
+  const billableDevices = billingStatus?.billable_devices ?? Math.max(enabledDevices - 1, 0);
   const costPerDevice = 10;
-  const totalMonthlyCost = deviceCount * costPerDevice;
+  const totalMonthlyCost = billableDevices * costPerDevice;
 
   return (
     <div className="max-w-4xl animate-fade-in">
@@ -272,15 +274,28 @@ export default function BillingPage() {
           </CardHeader>
           <CardContent className="space-y-6">
             <div>
-              <p className="text-xs text-[#555555] uppercase tracking-wider font-medium mb-2">Connected Devices</p>
-              <p className="text-3xl font-bold text-[#EDEDED]">{deviceCount}</p>
+              <p className="text-xs text-[#555555] uppercase tracking-wider font-medium mb-2">Total Devices</p>
+              <p className="text-3xl font-bold text-[#EDEDED]">{enabledDevices}</p>
+              <p className="text-xs text-[#4ade80] mt-1">1st device is free</p>
             </div>
             <div className="pt-4 border-t border-[rgba(255,255,255,0.06)]">
               <p className="text-xs text-[#555555] uppercase tracking-wider font-medium mb-3">Monthly Cost</p>
               <div className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-[#888888]">{deviceCount} devices × ${costPerDevice}</span>
-                  <span className="text-[#EDEDED] font-semibold">${totalMonthlyCost}</span>
+                {enabledDevices > 0 && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-[#4ade80]">1st device</span>
+                    <span className="text-[#4ade80] font-semibold">Free</span>
+                  </div>
+                )}
+                {billableDevices > 0 && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-[#888888]">{billableDevices} extra × ${costPerDevice}</span>
+                    <span className="text-[#EDEDED] font-semibold">${totalMonthlyCost}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between text-sm pt-2 border-t border-[rgba(255,255,255,0.06)]">
+                  <span className="text-[#EDEDED] font-semibold">Total</span>
+                  <span className="text-[#EDEDED] font-bold text-lg">${totalMonthlyCost}/mo</span>
                 </div>
               </div>
             </div>
@@ -327,16 +342,23 @@ export default function BillingPage() {
               <div className="flex flex-col h-full justify-between">
                 <div>
                   <p className="text-sm text-[#555555] uppercase tracking-wider font-medium mb-3">Pricing</p>
+                  <div className="mb-4">
+                    <div className="flex items-baseline gap-2 mb-1">
+                      <span className="text-4xl font-bold text-[#4ade80]">Free</span>
+                    </div>
+                    <p className="text-xs text-[#888888]">Your 1st device — always free, no card needed</p>
+                  </div>
                   <div className="mb-6">
-                    <div className="flex items-baseline gap-2 mb-2">
+                    <div className="flex items-baseline gap-2 mb-1">
                       <span className="text-4xl font-bold text-[#FF4D00]">$10</span>
                       <span className="text-[#888888]">/device/month</span>
                     </div>
-                    <p className="text-xs text-[#555555]">Billed monthly</p>
+                    <p className="text-xs text-[#555555]">Each additional device, billed monthly</p>
                   </div>
                 </div>
                 <div className="text-xs text-[#555555] space-y-1">
-                  <p>Flexible scaling - pay only for devices you use</p>
+                  <p>First device always free — no credit card required</p>
+                  <p>30-day free trial when adding more devices</p>
                   <p>Cancel anytime, no long-term contracts</p>
                 </div>
               </div>

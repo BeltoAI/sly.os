@@ -80,6 +80,11 @@ db.query(`
   ALTER TABLE organizations ADD COLUMN IF NOT EXISTS stripe_subscription_id VARCHAR(255);
 `).catch(() => {});
 
+// Device enabled/disabled column
+db.query(`
+  ALTER TABLE devices ADD COLUMN IF NOT EXISTS enabled BOOLEAN DEFAULT true;
+`).catch(() => {});
+
 // CORS - production-ready
 const allowedOrigins = process.env.CORS_ORIGIN ?
   process.env.CORS_ORIGIN.split(',') :
@@ -229,6 +234,20 @@ async function checkBillingStatus(req, res, next) {
   }
 
   try {
+    // Admin bypass — platform owner never gets billed
+    const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || 'eshir010@ucr.edu').split(',').map(e => e.trim().toLowerCase());
+    if (req.user && ADMIN_EMAILS.includes(req.user.email?.toLowerCase())) {
+      return next();
+    }
+
+    // First device is always free — skip billing if only 1 enabled device
+    const deviceCount = await db.query(
+      'SELECT COUNT(*) as cnt FROM devices WHERE organization_id = $1 AND enabled = true',
+      [req.user.org_id]
+    );
+    const enabledDevices = parseInt(deviceCount.rows[0]?.cnt) || 0;
+    if (enabledDevices <= 1) return next(); // First device is free!
+
     const org = await db.query('SELECT subscription_status, trial_ends_at FROM organizations WHERE id = $1', [req.user.org_id]);
     if (org.rows.length === 0) return next();
 
@@ -240,7 +259,7 @@ async function checkBillingStatus(req, res, next) {
 
     return res.status(402).json({
       error: 'Subscription required',
-      message: 'Your free trial has expired. Please subscribe to continue using SlyOS.',
+      message: 'You have multiple devices. Please subscribe to continue using SlyOS (first device is always free).',
       billing_url: '/dashboard/billing'
     });
   } catch (err) {
@@ -274,8 +293,8 @@ app.post('/api/auth/sdk', async (req, res) => {
 
 // Routes
 app.get('/health', (req, res) => {
-  res.json({
-    status: 'healthy',
+  res.json({ 
+    status: 'healthy', 
     timestamp: new Date().toISOString(),
     env: process.env.NODE_ENV 
   });
@@ -369,6 +388,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
   try {
     const user = await db.query('SELECT id, name, email FROM users WHERE email = $1', [email]);
     if (user.rows.length === 0) {
+      // Don't reveal whether email exists
       return res.json({ message: 'If an account with that email exists, a reset link has been sent.' });
     }
 
@@ -612,10 +632,19 @@ app.post('/api/devices/register', authenticate, checkBillingStatus, async (req, 
     return res.status(400).json({ error: 'device_id and platform required' });
   }
   try {
+    // Check if this device exists but is disabled
+    const existingDevice = await db.query(
+      'SELECT id, enabled FROM devices WHERE organization_id = $1 AND device_id = $2',
+      [req.user.org_id, device_id]
+    );
+    if (existingDevice.rows.length > 0 && existingDevice.rows[0].enabled === false) {
+      return res.status(403).json({ error: 'This device has been disabled. Re-enable it from the dashboard to continue.' });
+    }
+
     const result = await db.query(`
-      INSERT INTO devices (organization_id, device_id, platform, os_version, total_memory_mb, cpu_cores, country, last_seen)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
-      ON CONFLICT (organization_id, device_id) 
+      INSERT INTO devices (organization_id, device_id, platform, os_version, total_memory_mb, cpu_cores, country, last_seen, enabled)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, true)
+      ON CONFLICT (organization_id, device_id)
       DO UPDATE SET last_seen = CURRENT_TIMESTAMP
       RETURNING *
     `, [req.user.org_id, device_id, platform, os_version, total_memory_mb, cpu_cores, country]);
@@ -629,14 +658,56 @@ app.post('/api/devices/register', authenticate, checkBillingStatus, async (req, 
 app.get('/api/devices', authenticate, checkBillingStatus, async (req, res) => {
   try {
     const result = await db.query(`
-      SELECT d.*, COUNT(dm.id) as model_count FROM devices d 
+      SELECT d.*, COUNT(dm.id) as model_count FROM devices d
       LEFT JOIN device_models dm ON d.id = dm.device_id
-      WHERE d.organization_id = $1 GROUP BY d.id ORDER BY d.last_seen DESC LIMIT 100
+      WHERE d.organization_id = $1 GROUP BY d.id ORDER BY d.enabled DESC, d.last_seen DESC LIMIT 100
     `, [req.user.org_id]);
     res.json(result.rows);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch devices' });
+  }
+});
+
+// Enable/disable a device (stops SDK and billing for that device)
+app.put('/api/devices/:deviceId/toggle', authenticate, async (req, res) => {
+  const { deviceId } = req.params;
+  const { enabled } = req.body;
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ error: 'enabled (boolean) is required' });
+  }
+  try {
+    const result = await db.query(
+      'UPDATE devices SET enabled = $1 WHERE id = $2 AND organization_id = $3 RETURNING *',
+      [enabled, deviceId, req.user.org_id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Device not found' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Toggle device error:', err);
+    res.status(500).json({ error: 'Failed to update device' });
+  }
+});
+
+// Remove a device entirely
+app.delete('/api/devices/:deviceId', authenticate, async (req, res) => {
+  const { deviceId } = req.params;
+  try {
+    // Delete related device_models first
+    await db.query('DELETE FROM device_models WHERE device_id = $1', [deviceId]);
+    const result = await db.query(
+      'DELETE FROM devices WHERE id = $1 AND organization_id = $2 RETURNING id',
+      [deviceId, req.user.org_id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Device not found' });
+    }
+    res.json({ success: true, message: 'Device removed' });
+  } catch (err) {
+    console.error('Delete device error:', err);
+    res.status(500).json({ error: 'Failed to remove device' });
   }
 });
 
@@ -684,6 +755,7 @@ app.get('/api/analytics/overview', authenticate, checkBillingStatus, async (req,
     const activity = await db.query(`SELECT DATE_TRUNC('hour', timestamp) as hour, COUNT(*) as events FROM telemetry_events WHERE organization_id = $1 AND timestamp > NOW() - INTERVAL '24 hours' GROUP BY hour ORDER BY hour DESC`, [req.user.org_id]);
 
     const totalTokensAllTime = parseInt(allTime.rows[0]?.total_tokens) || 0;
+    // Cloud API cost comparison: ~$0.01 per 1K tokens (conservative GPT-4 estimate)
     const estimatedSaved = (totalTokensAllTime / 1000) * 0.01;
 
     res.json({
@@ -750,12 +822,17 @@ app.post('/api/billing/create-checkout', authenticate, async (req, res) => {
     }
     const org = orgResult.rows[0];
 
-    // Get device count for organization
+    // Get ENABLED device count for organization (first device is free)
     const deviceResult = await db.query(
-      'SELECT COUNT(*) as device_count FROM devices WHERE organization_id = $1',
+      'SELECT COUNT(*) as device_count FROM devices WHERE organization_id = $1 AND enabled = true',
       [req.user.org_id]
     );
-    const deviceCount = Math.max(parseInt(deviceResult.rows[0].device_count) || 1, 1);
+    const totalDevices = parseInt(deviceResult.rows[0].device_count) || 0;
+    const billableDevices = Math.max(totalDevices - 1, 0); // First device is free
+
+    if (billableDevices === 0) {
+      return res.status(400).json({ error: 'Your first device is free! No subscription needed yet. Add a second device to subscribe.' });
+    }
 
     // Create or retrieve Stripe customer
     let customerId = org.stripe_customer_id;
@@ -768,25 +845,25 @@ app.post('/api/billing/create-checkout', authenticate, async (req, res) => {
       await db.query('UPDATE organizations SET stripe_customer_id = $1 WHERE id = $2', [customerId, org.id]);
     }
 
-    // Check if organization has already had a trial
+    // Check if organization has already used their trial
     const orgBilling = await db.query(
-      'SELECT trial_ends_at FROM organizations WHERE id = $1',
+      'SELECT subscription_status, trial_ends_at FROM organizations WHERE id = $1',
       [req.user.org_id]
     );
-    const trialEndsAt = orgBilling.rows[0]?.trial_ends_at;
-    const shouldIncludeTrial = trialEndsAt && new Date(trialEndsAt) > new Date();
+    const hasUsedTrial = orgBilling.rows[0]?.subscription_status !== 'trial';
 
-    // Create checkout session
+    // Create checkout session - always require card, give 30 days free if first time
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       mode: 'subscription',
+      payment_method_collection: 'always',
       line_items: [
         {
           price_data: {
             currency: 'usd',
             product_data: {
-              name: 'SlyOS Subscription',
-              description: 'SlyOS Edge AI Platform - $10 per device per month'
+              name: 'SlyOS Pro',
+              description: `SlyOS Edge AI — $10/device/month (${billableDevices} billable device${billableDevices !== 1 ? 's' : ''}, 1st device free)`
             },
             unit_amount: 1000,
             recurring: {
@@ -794,10 +871,10 @@ app.post('/api/billing/create-checkout', authenticate, async (req, res) => {
               interval_count: 1
             }
           },
-          quantity: deviceCount
+          quantity: billableDevices
         }
       ],
-      ...(shouldIncludeTrial && { subscription_data: { trial_period_days: 30 } }),
+      ...(!hasUsedTrial && { subscription_data: { trial_period_days: 30 } }),
       success_url: (process.env.DASHBOARD_URL || 'https://dashboard.slyos.world') + '/dashboard/billing?success=true',
       cancel_url: (process.env.DASHBOARD_URL || 'https://dashboard.slyos.world') + '/dashboard/billing?canceled=true',
       metadata: { org_id: org.id }
@@ -822,10 +899,12 @@ app.get('/api/billing/status', authenticate, async (req, res) => {
     const org = orgResult.rows[0];
 
     const deviceResult = await db.query(
-      'SELECT COUNT(*) as device_count FROM devices WHERE organization_id = $1',
+      'SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE enabled = true) as enabled_count FROM devices WHERE organization_id = $1',
       [req.user.org_id]
     );
-    const deviceCount = parseInt(deviceResult.rows[0].device_count) || 0;
+    const totalDevices = parseInt(deviceResult.rows[0].total) || 0;
+    const enabledDevices = parseInt(deviceResult.rows[0].enabled_count) || 0;
+    const billableDevices = Math.max(enabledDevices - 1, 0); // First device free
 
     const trialEndsAt = new Date(org.trial_ends_at);
     const isTrialActive = org.subscription_status === 'trial' && trialEndsAt > new Date();
@@ -833,9 +912,12 @@ app.get('/api/billing/status', authenticate, async (req, res) => {
     res.json({
       subscription_status: org.subscription_status,
       trial_ends_at: org.trial_ends_at,
-      device_count: deviceCount,
-      monthly_cost: deviceCount * 10,
-      is_trial_active: isTrialActive
+      device_count: totalDevices,
+      enabled_devices: enabledDevices,
+      billable_devices: billableDevices,
+      monthly_cost: billableDevices * 10,
+      is_trial_active: isTrialActive,
+      first_device_free: true
     });
   } catch (err) {
     console.error('Billing status error:', err);

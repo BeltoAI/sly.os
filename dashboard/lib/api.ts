@@ -73,6 +73,16 @@ export const getDevices = async () => {
   return res.data;
 };
 
+export const toggleDevice = async (deviceId: string, enabled: boolean) => {
+  const res = await api.put(`/devices/${deviceId}/toggle`, { enabled });
+  return res.data;
+};
+
+export const removeDevice = async (deviceId: string) => {
+  const res = await api.delete(`/devices/${deviceId}`);
+  return res.data;
+};
+
 export const getModels = async () => {
   const res = await api.get('/models');
   return res.data;
