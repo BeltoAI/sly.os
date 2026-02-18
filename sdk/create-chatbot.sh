@@ -502,7 +502,8 @@ echo ""
 echo -e "${GREEN}Ready to chat! 🚀${NC}"
 echo ""
 
-# Auto-run the chatbot
-echo -e "${CYAN}Starting chatbot...${NC}"
+# Tell user how to start (can't auto-run when piped because stdin is closed)
+echo -e "${CYAN}To start chatting, run:${NC}"
 echo ""
-npm start
+echo -e "  ${YELLOW}cd ${PROJECT_NAME} && npm start${NC}"
+echo ""
