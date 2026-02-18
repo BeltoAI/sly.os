@@ -260,22 +260,30 @@ function printWelcome() {
  */
 async function sendMessage(userMessage) {
   try {
-    // Call SDK generate — send just the user's message (small models don't handle chat history well)
+    // Wrap in instruction format so the model RESPONDS instead of just completing text
+    const prompt = `Below is a conversation between a user and a helpful AI assistant. The assistant gives short, direct answers.\n\nUser: ${userMessage}\nAssistant:`;
+
     console.log(`${colors.dim}Thinking...${colors.reset}`);
-    const response = await sdk.generate(config.model, userMessage);
+    const response = await sdk.generate(config.model, prompt);
 
     // Extract response text
     let assistantMessage = typeof response === 'string'
       ? response
       : response?.content || response?.text || response?.choices?.[0]?.message?.content || JSON.stringify(response);
 
-    // Clean up: strip any echoed "User:" / "Assistant:" prefixes the model might add
+    // Clean up model output
     assistantMessage = assistantMessage
-      .replace(/^(User|Assistant|Human|AI):\s*/gim, '')
-      .replace(/\n(User|Assistant|Human|AI):\s*.*/gm, '')
+      // Take only the first response (stop at next "User:" or "Assistant:")
+      .split(/\n\s*(User|Human):/i)[0]
+      // Remove any leading "Assistant:" if the model echoed it
+      .replace(/^\s*(Assistant|AI):\s*/i, '')
       .trim();
 
-    // Display response
+    // If empty after cleanup, show a fallback
+    if (!assistantMessage) {
+      assistantMessage = '(No response generated — try rephrasing your question)';
+    }
+
     console.log(`\n${colors.bright}${colors.magenta}AI:${colors.reset} ${assistantMessage}\n`);
   } catch (error) {
     console.error(`\n${colors.red}Error:${colors.reset} ${error.message}\n`);
