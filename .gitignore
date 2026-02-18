@@ -18,3 +18,6 @@ SlyOS-Deployment-Guide.docx
 test-sdk.js
 test-sdk-direct.js
 chat.js
+
+# Generated chatbot projects (from testing create-chatbot.sh)
+slyos-chatbot
