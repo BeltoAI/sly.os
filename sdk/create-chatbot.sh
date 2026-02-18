@@ -260,26 +260,25 @@ function printWelcome() {
  */
 async function sendMessage(userMessage) {
   try {
-    // Wrap in instruction format so the model RESPONDS instead of just completing text
-    const prompt = `Below is a conversation between a user and a helpful AI assistant. The assistant gives short, direct answers.\n\nUser: ${userMessage}\nAssistant:`;
-
     console.log(`${colors.dim}Thinking...${colors.reset}`);
-    const response = await sdk.generate(config.model, prompt);
 
-    // Extract response text
-    let assistantMessage = typeof response === 'string'
-      ? response
-      : response?.content || response?.text || response?.choices?.[0]?.message?.content || JSON.stringify(response);
+    // Use chatCompletion (OpenAI-compatible) — handles prompt formatting for any model
+    const response = await sdk.chatCompletion(config.model, {
+      messages: [
+        { role: 'system', content: 'You are a helpful AI assistant. Give short, direct answers.' },
+        { role: 'user', content: userMessage }
+      ],
+      max_tokens: 200,
+      temperature: 0.7
+    });
 
-    // Clean up model output
+    let assistantMessage = response?.choices?.[0]?.message?.content || '';
+
+    // Light cleanup — stop at any hallucinated role prefixes
     assistantMessage = assistantMessage
-      // Take only the first response (stop at next "User:" or "Assistant:")
-      .split(/\n\s*(User|Human):/i)[0]
-      // Remove any leading "Assistant:" if the model echoed it
-      .replace(/^\s*(Assistant|AI):\s*/i, '')
+      .split(/\n\s*(User|Human|System):/i)[0]
       .trim();
 
-    // If empty after cleanup, show a fallback
     if (!assistantMessage) {
       assistantMessage = '(No response generated — try rephrasing your question)';
     }

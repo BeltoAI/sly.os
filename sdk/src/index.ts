@@ -615,7 +615,12 @@ class SlyOS {
         do_sample: true,
       });
 
-      const response = result[0].generated_text;
+      const rawOutput = result[0].generated_text;
+      // HuggingFace transformers returns the prompt + generated text concatenated.
+      // Strip the original prompt so we only return the NEW tokens.
+      const response = rawOutput.startsWith(prompt)
+        ? rawOutput.slice(prompt.length).trim()
+        : rawOutput.trim();
       const latency = Date.now() - startTime;
       const tokensGenerated = response.split(/\s+/).length;
       const tokensPerSec = (tokensGenerated / (latency / 1000)).toFixed(1);
