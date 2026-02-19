@@ -56,7 +56,7 @@ export default function DashboardPage() {
   const trialDaysRemaining = billing?.trial_days_remaining || 0;
 
   // Weekly goal calculation (last 7 days inferences vs 100 target)
-  const weeklyInferences = analytics.today?.total_inferences || 0;
+  const weeklyInferences = analytics.allTime?.total_inferences || 0;
   const weeklyGoal = 100;
   const weeklyProgress = Math.min((weeklyInferences / weeklyGoal) * 100, 100);
 
@@ -150,7 +150,7 @@ export default function DashboardPage() {
                 <p className="text-[#888888] text-xs">{trialDaysRemaining} days remaining to upgrade</p>
               </div>
             </div>
-            <Button size="sm" onClick={() => router.push('/billing')} className="gap-1">
+            <Button size="sm" onClick={() => router.push('/dashboard/billing')} className="gap-1">
               Upgrade <ArrowRight className="w-3 h-3" />
             </Button>
           </div>
@@ -314,7 +314,7 @@ export default function DashboardPage() {
         </Button>
 
         <Button
-          onClick={() => router.push('/dashboard/team')}
+          onClick={() => router.push('/dashboard/settings')}
           className="h-auto py-4 flex flex-col items-center justify-center gap-2 bg-[rgba(168,85,247,0.1)] hover:bg-[rgba(168,85,247,0.15)] text-[#a855f7] border border-[rgba(168,85,247,0.3)]"
           variant="outline"
         >
@@ -399,7 +399,7 @@ export default function DashboardPage() {
                         <span className="w-1.5 h-1.5 rounded-full bg-[#22c55e] animate-pulse" />
                         <span className="text-xs text-[#22c55e] font-medium">Active</span>
                       </div>
-                      <Button variant="outline" size="sm" onClick={() => router.push('/dashboard/configure')}>
+                      <Button variant="outline" size="sm" onClick={() => router.push('/dashboard/models')}>
                         Configure
                       </Button>
                     </div>

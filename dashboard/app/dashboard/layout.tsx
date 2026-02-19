@@ -12,7 +12,7 @@ const navItems = [
   { href: '/dashboard/devices', label: 'Devices', icon: Smartphone },
   { href: '/dashboard/models', label: 'Models', icon: Bot },
   { href: '/dashboard/api-keys', label: 'API Keys', icon: Key },
-  { href: '/dashboard/integration', label: 'Integration', icon: BookOpen },
+  { href: '/dashboard/get-started', label: 'Integration', icon: BookOpen },
   { href: '/dashboard/billing', label: 'Billing', icon: CreditCard },
   { href: '/dashboard/settings', label: 'Settings', icon: Settings },
 ];
