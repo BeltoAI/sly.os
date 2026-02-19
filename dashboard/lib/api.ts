@@ -123,4 +123,19 @@ export const openBillingPortal = async () => {
   return response.data;
 };
 
+export const validateDiscount = async (code: string) => {
+  const response = await api.post('/billing/validate-discount', { code });
+  return response.data;
+};
+
+export const createCheckoutWithDiscount = async (discountCode?: string) => {
+  const response = await api.post('/billing/create-checkout', { discountCode });
+  return response.data;
+};
+
+export const getCreditsBalance = async () => {
+  const response = await api.get('/credits/balance');
+  return response.data;
+};
+
 export default api;

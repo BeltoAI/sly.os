@@ -78,7 +78,48 @@ db.query(`
   ALTER TABLE organizations ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(50) DEFAULT 'trial';
   ALTER TABLE organizations ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMP DEFAULT (NOW() + INTERVAL '30 days');
   ALTER TABLE organizations ADD COLUMN IF NOT EXISTS stripe_subscription_id VARCHAR(255);
+  ALTER TABLE organizations ADD COLUMN IF NOT EXISTS credits_balance INTEGER DEFAULT 100;
+  ALTER TABLE organizations ADD COLUMN IF NOT EXISTS discount_code VARCHAR(50);
 `).catch(() => {});
+
+// Create discount_codes table
+db.query(`
+  CREATE TABLE IF NOT EXISTS discount_codes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code VARCHAR(50) UNIQUE NOT NULL,
+    percent_off INTEGER NOT NULL,
+    max_uses INTEGER,
+    times_used INTEGER DEFAULT 0,
+    expires_at TIMESTAMP,
+    active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT NOW()
+  )
+`).then(() => {
+  // Seed default discount codes
+  db.query(`
+    INSERT INTO discount_codes (code, percent_off, times_used, active)
+    VALUES
+      ('SLYOS25', 25, 0, true),
+      ('SLYOS50', 50, 0, true),
+      ('SLYOSFREE', 100, 0, true)
+    ON CONFLICT (code) DO NOTHING
+  `).then(() => {
+    console.log('✅ Discount codes table initialized');
+  }).catch((err) => { console.error('Discount codes seed failed:', err.message); });
+}).catch((err) => { console.error('Discount codes table creation failed:', err.message); });
+
+// Create credit_ledger table
+db.query(`
+  CREATE TABLE IF NOT EXISTS credit_ledger (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id),
+    amount INTEGER NOT NULL,
+    reason VARCHAR(255),
+    created_at TIMESTAMP DEFAULT NOW()
+  )
+`).then(() => {
+  console.log('✅ Credit ledger table initialized');
+}).catch((err) => { console.error('Credit ledger table creation failed:', err.message); });
 
 // Device enabled/disabled column
 db.query(`
@@ -370,6 +411,12 @@ app.post('/api/auth/google', async (req, res) => {
     );
     const user = userResult.rows[0];
 
+    // Add welcome bonus credits
+    await db.query(
+      'INSERT INTO credit_ledger (organization_id, amount, reason) VALUES ($1, $2, $3)',
+      [org.id, 100, 'Welcome bonus — 100 free credits']
+    ).catch(() => {});
+
     const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
     res.status(201).json({
       token,
@@ -495,6 +542,12 @@ app.post('/api/auth/register', async (req, res) => {
       [email, passwordHash, name, org.id, 'admin']
     );
     const user = userResult.rows[0];
+
+    // Add welcome bonus credits
+    await db.query(
+      'INSERT INTO credit_ledger (organization_id, amount, reason) VALUES ($1, $2, $3)',
+      [org.id, 100, 'Welcome bonus — 100 free credits']
+    ).catch(() => {});
 
     const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
 
@@ -751,6 +804,10 @@ app.get('/api/analytics/overview', authenticate, checkBillingStatus, async (req,
       WHERE organization_id = $1 AND event_type = 'inference' AND success = true
     `, [req.user.org_id]).catch(() => ({ rows: [{ total_inferences: 0, total_tokens: 0 }] }));
 
+    // Get credits balance
+    const orgResult = await db.query('SELECT credits_balance FROM organizations WHERE id = $1', [req.user.org_id]);
+    const creditsBalance = orgResult.rows[0]?.credits_balance || 100;
+
     const modelDist = await db.query(`SELECT m.name, COUNT(dm.device_id) as count FROM models m LEFT JOIN device_models dm ON m.id = dm.model_id LEFT JOIN devices d ON dm.device_id = d.id WHERE d.organization_id = $1 GROUP BY m.id`, [req.user.org_id]);
     const activity = await db.query(`SELECT DATE_TRUNC('hour', timestamp) as hour, COUNT(*) as events FROM telemetry_events WHERE organization_id = $1 AND timestamp > NOW() - INTERVAL '24 hours' GROUP BY hour ORDER BY hour DESC`, [req.user.org_id]);
 
@@ -768,6 +825,7 @@ app.get('/api/analytics/overview', authenticate, checkBillingStatus, async (req,
         total_inferences: parseInt(allTime.rows[0]?.total_inferences) || 0,
         total_tokens: totalTokensAllTime,
       },
+      credits_balance: creditsBalance,
       modelDistribution: modelDist.rows,
       recentActivity: activity.rows,
       costSavings: { tokensGenerated: totalTokensAllTime, estimatedCostSaved: parseFloat(estimatedSaved.toFixed(4)) }
@@ -781,6 +839,9 @@ app.get('/api/analytics/overview', authenticate, checkBillingStatus, async (req,
 app.post('/api/telemetry', authenticate, checkBillingStatus, async (req, res) => {
   const { device_id, model_id, event_type, latency_ms, tokens_generated, success = true } = req.body;
   try {
+    const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || 'eshir010@ucr.edu').split(',').map(e => e.trim().toLowerCase());
+    const isAdmin = ADMIN_EMAILS.includes(req.user.email?.toLowerCase());
+
     const deviceResult = await db.query('SELECT id FROM devices WHERE device_id = $1 AND organization_id = $2', [device_id, req.user.org_id]);
     if (deviceResult.rows.length === 0) return res.status(404).json({ error: 'Device not found' });
     const deviceUUID = deviceResult.rows[0].id;
@@ -801,6 +862,42 @@ app.post('/api/telemetry', authenticate, checkBillingStatus, async (req, res) =>
           total_inferences = analytics_daily.total_inferences + 1,
           total_tokens_generated = analytics_daily.total_tokens_generated + $2
       `, [req.user.org_id, tokens_generated || 0]).catch(() => {});
+
+      // Credits = free trial meter. Subscribers get unlimited inferences.
+      if (!isAdmin) {
+        const orgResult = await db.query('SELECT credits_balance, subscription_status FROM organizations WHERE id = $1', [req.user.org_id]);
+        if (orgResult.rows.length > 0) {
+          const org = orgResult.rows[0];
+
+          // Subscribers get unlimited inferences — no credit deduction
+          if (org.subscription_status === 'active') {
+            // No-op: active subscribers don't use credits
+          } else {
+            // Free tier: deduct 1 credit per inference
+            const currentBalance = org.credits_balance ?? 100;
+            if (currentBalance > 0) {
+              const newBalance = currentBalance - 1;
+              await db.query('UPDATE organizations SET credits_balance = $1 WHERE id = $2', [newBalance, req.user.org_id]);
+              await db.query('INSERT INTO credit_ledger (organization_id, amount, reason) VALUES ($1, $2, $3)', [req.user.org_id, -1, 'Inference usage']);
+            }
+            // When credits exhausted: still allow the inference but warn in response
+            // We NEVER hard-block. The SDK should still work — this is a soft nudge.
+          }
+        }
+      }
+    }
+
+    // Include credits warning if balance is low/exhausted (soft nudge, never blocks)
+    if (!isAdmin) {
+      const updatedOrg = await db.query('SELECT credits_balance, subscription_status FROM organizations WHERE id = $1', [req.user.org_id]).catch(() => ({ rows: [] }));
+      const bal = updatedOrg.rows[0]?.credits_balance ?? 100;
+      const isSub = updatedOrg.rows[0]?.subscription_status === 'active';
+      if (!isSub && bal <= 0) {
+        return res.json({ success: true, credits_exhausted: true, message: 'Your 100 free inferences are used up! Subscribe for unlimited inferences at $10/device/month.' });
+      }
+      if (!isSub && bal <= 10) {
+        return res.json({ success: true, credits_low: true, credits_remaining: bal, message: `Only ${bal} free inferences left. Subscribe for unlimited.` });
+      }
     }
 
     res.json({ success: true });
@@ -811,7 +908,115 @@ app.post('/api/telemetry', authenticate, checkBillingStatus, async (req, res) =>
 });
 
 // Billing endpoints
+app.get('/api/billing/status', authenticate, async (req, res) => {
+  try {
+    const orgResult = await db.query(
+      'SELECT subscription_status, trial_ends_at FROM organizations WHERE id = $1',
+      [req.user.org_id]
+    );
+    if (orgResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Organization not found' });
+    }
+    const org = orgResult.rows[0];
+
+    const deviceResult = await db.query(
+      'SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE enabled = true) as enabled_count FROM devices WHERE organization_id = $1',
+      [req.user.org_id]
+    );
+    const totalDevices = parseInt(deviceResult.rows[0].total) || 0;
+    const enabledDevices = parseInt(deviceResult.rows[0].enabled_count) || 0;
+    const billableDevices = Math.max(enabledDevices - 1, 0); // First device free
+
+    const trialEndsAt = new Date(org.trial_ends_at);
+    const now = new Date();
+    const isTrialActive = org.subscription_status === 'trial' && trialEndsAt > now;
+    const trialDaysRemaining = Math.max(0, Math.ceil((trialEndsAt - now) / (1000 * 60 * 60 * 24)));
+
+    res.json({
+      subscription_status: org.subscription_status,
+      trial_ends_at: org.trial_ends_at,
+      trial_days_remaining: trialDaysRemaining,
+      trial_end_date: org.trial_ends_at,
+      device_count: totalDevices,
+      enabled_devices: enabledDevices,
+      billable_devices: billableDevices,
+      monthly_cost: billableDevices * 10,
+      is_trial_active: isTrialActive,
+      first_device_free: true
+    });
+  } catch (err) {
+    console.error('Billing status error:', err);
+    res.status(500).json({ error: 'Failed to fetch billing status' });
+  }
+});
+
+app.post('/api/billing/portal', authenticate, async (req, res) => {
+  try {
+    const orgResult = await db.query(
+      'SELECT stripe_customer_id FROM organizations WHERE id = $1',
+      [req.user.org_id]
+    );
+    if (orgResult.rows.length === 0 || !orgResult.rows[0].stripe_customer_id) {
+      return res.status(404).json({ error: 'No Stripe customer found for this organization' });
+    }
+
+    const session = await stripe.billingPortal.sessions.create({
+      customer: orgResult.rows[0].stripe_customer_id,
+      return_url: (process.env.DASHBOARD_URL || 'https://dashboard.slyos.world') + '/dashboard/billing'
+    });
+
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error('Billing portal error:', err);
+    res.status(500).json({ error: 'Failed to create billing portal session' });
+  }
+});
+
+// Discount codes endpoints
+app.post('/api/billing/validate-discount', authenticate, async (req, res) => {
+  const { code } = req.body;
+  if (!code) {
+    return res.status(400).json({ error: 'Discount code required' });
+  }
+  try {
+    const result = await db.query(
+      'SELECT id, code, percent_off, max_uses, times_used, expires_at, active FROM discount_codes WHERE code = $1',
+      [code.toUpperCase()]
+    );
+    if (result.rows.length === 0) {
+      return res.json({ valid: false, error: 'Invalid discount code' });
+    }
+    const discount = result.rows[0];
+
+    // Check if active
+    if (!discount.active) {
+      return res.json({ valid: false, error: 'Discount code is no longer active' });
+    }
+
+    // Check if expired
+    if (discount.expires_at && new Date(discount.expires_at) < new Date()) {
+      return res.json({ valid: false, error: 'Discount code has expired' });
+    }
+
+    // Check if max uses reached
+    if (discount.max_uses && discount.times_used >= discount.max_uses) {
+      return res.json({ valid: false, error: 'Discount code has reached maximum uses' });
+    }
+
+    res.json({ valid: true, percent_off: discount.percent_off, code: discount.code });
+  } catch (err) {
+    console.error('Validate discount error:', err);
+    res.status(500).json({ error: 'Failed to validate discount code' });
+  }
+});
+
+// Update create-checkout to support discount codes
+const originalCreateCheckout = app._router.stack.find(layer =>
+  layer.route && layer.route.path === '/api/billing/create-checkout'
+);
+
 app.post('/api/billing/create-checkout', authenticate, async (req, res) => {
+  const { discountCode } = req.body;
   try {
     const orgResult = await db.query(
       'SELECT id, name, stripe_customer_id FROM organizations WHERE id = $1',
@@ -852,7 +1057,45 @@ app.post('/api/billing/create-checkout', authenticate, async (req, res) => {
     );
     const hasUsedTrial = orgBilling.rows[0]?.subscription_status !== 'trial';
 
-    // Create checkout session - always require card, give 30 days free if first time
+    // Handle discount code if provided
+    let discounts = undefined;
+    if (discountCode) {
+      const discountResult = await db.query(
+        'SELECT id, code, percent_off, max_uses, times_used, expires_at, active FROM discount_codes WHERE code = $1',
+        [discountCode.toUpperCase()]
+      );
+      if (discountResult.rows.length > 0) {
+        const discount = discountResult.rows[0];
+
+        // Validate discount
+        if (discount.active && (!discount.expires_at || new Date(discount.expires_at) > new Date()) &&
+            (!discount.max_uses || discount.times_used < discount.max_uses)) {
+
+          // Create Stripe coupon
+          const coupon = await stripe.coupons.create({
+            percent_off: discount.percent_off,
+            duration: 'repeating',
+            duration_in_months: 1
+          });
+
+          discounts = [{ coupon: coupon.id }];
+
+          // Increment times_used
+          await db.query(
+            'UPDATE discount_codes SET times_used = times_used + 1 WHERE id = $1',
+            [discount.id]
+          );
+
+          // Store discount code on organization
+          await db.query(
+            'UPDATE organizations SET discount_code = $1 WHERE id = $2',
+            [discount.code, org.id]
+          );
+        }
+      }
+    }
+
+    // Create checkout session
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       mode: 'subscription',
@@ -875,6 +1118,7 @@ app.post('/api/billing/create-checkout', authenticate, async (req, res) => {
         }
       ],
       ...(!hasUsedTrial && { subscription_data: { trial_period_days: 30 } }),
+      ...(discounts && { discounts }),
       success_url: (process.env.DASHBOARD_URL || 'https://dashboard.slyos.world') + '/dashboard/billing?success=true',
       cancel_url: (process.env.DASHBOARD_URL || 'https://dashboard.slyos.world') + '/dashboard/billing?canceled=true',
       metadata: { org_id: org.id }
@@ -887,63 +1131,161 @@ app.post('/api/billing/create-checkout', authenticate, async (req, res) => {
   }
 });
 
-app.get('/api/billing/status', authenticate, async (req, res) => {
+// Credits endpoints
+app.get('/api/credits/balance', authenticate, async (req, res) => {
   try {
     const orgResult = await db.query(
-      'SELECT subscription_status, trial_ends_at FROM organizations WHERE id = $1',
+      'SELECT credits_balance FROM organizations WHERE id = $1',
       [req.user.org_id]
     );
     if (orgResult.rows.length === 0) {
       return res.status(404).json({ error: 'Organization not found' });
     }
-    const org = orgResult.rows[0];
+    const creditsBalance = orgResult.rows[0].credits_balance || 100;
 
-    const deviceResult = await db.query(
-      'SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE enabled = true) as enabled_count FROM devices WHERE organization_id = $1',
-      [req.user.org_id]
-    );
-    const totalDevices = parseInt(deviceResult.rows[0].total) || 0;
-    const enabledDevices = parseInt(deviceResult.rows[0].enabled_count) || 0;
-    const billableDevices = Math.max(enabledDevices - 1, 0); // First device free
+    // Calculate totals from ledger
+    const ledgerResult = await db.query(`
+      SELECT
+        COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) as total_earned,
+        COALESCE(SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END), 0) as total_spent
+      FROM credit_ledger
+      WHERE organization_id = $1
+    `, [req.user.org_id]);
 
-    const trialEndsAt = new Date(org.trial_ends_at);
-    const isTrialActive = org.subscription_status === 'trial' && trialEndsAt > new Date();
+    const ledger = ledgerResult.rows[0];
+    const totalEarned = parseInt(ledger.total_earned) || 0;
+    const totalSpent = parseInt(ledger.total_spent) || 0;
+
+    // Get last 20 ledger entries
+    const historyResult = await db.query(`
+      SELECT id, amount, reason, created_at
+      FROM credit_ledger
+      WHERE organization_id = $1
+      ORDER BY created_at DESC
+      LIMIT 20
+    `, [req.user.org_id]);
+
+    // Check subscription status
+    const subResult = await db.query('SELECT subscription_status FROM organizations WHERE id = $1', [req.user.org_id]);
+    const isSubscribed = subResult.rows[0]?.subscription_status === 'active';
 
     res.json({
-      subscription_status: org.subscription_status,
-      trial_ends_at: org.trial_ends_at,
-      device_count: totalDevices,
-      enabled_devices: enabledDevices,
-      billable_devices: billableDevices,
-      monthly_cost: billableDevices * 10,
-      is_trial_active: isTrialActive,
-      first_device_free: true
+      balance: isSubscribed ? 'unlimited' : creditsBalance,
+      is_subscribed: isSubscribed,
+      free_credits_total: 100,
+      total_earned: totalEarned,
+      total_spent: totalSpent,
+      credit_value: 0.01,
+      how_it_works: isSubscribed
+        ? 'You have an active subscription — unlimited inferences included.'
+        : `You have ${creditsBalance} of 100 free inferences remaining. Subscribe for unlimited.`,
+      history: historyResult.rows
     });
   } catch (err) {
-    console.error('Billing status error:', err);
-    res.status(500).json({ error: 'Failed to fetch billing status' });
+    console.error('Credits balance error:', err);
+    res.status(500).json({ error: 'Failed to fetch credits balance' });
   }
 });
 
-app.post('/api/billing/portal', authenticate, async (req, res) => {
+app.post('/api/credits/purchase', authenticate, async (req, res) => {
+  // No pay-per-inference. Credits are a free trial meter.
+  // When credits run out, users subscribe for unlimited inferences.
+  res.json({
+    message: 'SlyOS doesn\'t charge per inference. Your 100 free credits let you try the platform. Subscribe for $10/device/month to get unlimited inferences.',
+    action: 'subscribe',
+    billing_url: '/dashboard/billing'
+  });
+});
+
+// Widget endpoints
+app.post('/api/widget/config', async (req, res) => {
+  const { widgetId } = req.body;
+  if (!widgetId) {
+    return res.status(400).json({ error: 'Widget ID required' });
+  }
+  try {
+    // For now, return a placeholder widget configuration
+    res.json({
+      widgetId,
+      apiEndpoint: process.env.API_URL || 'http://localhost:3000',
+      models: ['quantum-7b', 'quantum-13b'],
+      defaultModel: 'quantum-7b',
+      theme: 'dark'
+    });
+  } catch (err) {
+    console.error('Widget config error:', err);
+    res.status(500).json({ error: 'Failed to fetch widget config' });
+  }
+});
+
+app.get('/api/widget/:orgApiKey/chat', async (req, res) => {
+  const { orgApiKey } = req.params;
+  if (!orgApiKey) {
+    return res.status(400).json({ error: 'API key required' });
+  }
   try {
     const orgResult = await db.query(
-      'SELECT stripe_customer_id FROM organizations WHERE id = $1',
-      [req.user.org_id]
+      'SELECT id, name, api_key FROM organizations WHERE api_key = $1',
+      [orgApiKey]
     );
-    if (orgResult.rows.length === 0 || !orgResult.rows[0].stripe_customer_id) {
-      return res.status(404).json({ error: 'No Stripe customer found for this organization' });
+    if (orgResult.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid API key' });
+    }
+    const org = orgResult.rows[0];
+    res.json({
+      organization: { id: org.id, name: org.name },
+      apiEndpoint: process.env.API_URL || 'http://localhost:3000',
+      models: ['quantum-7b', 'quantum-13b']
+    });
+  } catch (err) {
+    console.error('Widget chat error:', err);
+    res.status(500).json({ error: 'Failed to initialize widget' });
+  }
+});
+
+app.post('/api/widget/:orgApiKey/generate', async (req, res) => {
+  const { orgApiKey } = req.params;
+  const { message, model, sessionId } = req.body;
+  if (!orgApiKey || !message || !model) {
+    return res.status(400).json({ error: 'API key, message, and model required' });
+  }
+  try {
+    const orgResult = await db.query(
+      'SELECT id, credits_balance FROM organizations WHERE api_key = $1',
+      [orgApiKey]
+    );
+    if (orgResult.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid API key' });
+    }
+    const org = orgResult.rows[0];
+
+    // Check subscription status — subscribers get unlimited
+    const subResult = await db.query('SELECT subscription_status FROM organizations WHERE id = $1', [org.id]);
+    const isSubscribed = subResult.rows[0]?.subscription_status === 'active';
+
+    const creditsBalance = org.credits_balance ?? 100;
+
+    // Only deduct credits for free-tier users
+    if (!isSubscribed && creditsBalance > 0) {
+      await db.query('UPDATE organizations SET credits_balance = credits_balance - 1 WHERE id = $1', [org.id]);
+      await db.query(
+        'INSERT INTO credit_ledger (organization_id, amount, reason) VALUES ($1, $2, $3)',
+        [org.id, -1, 'Widget inference usage']
+      );
     }
 
-    const session = await stripe.billingPortal.sessions.create({
-      customer: orgResult.rows[0].stripe_customer_id,
-      return_url: (process.env.DASHBOARD_URL || 'https://dashboard.slyos.world') + '/dashboard/billing'
+    // Placeholder response — actual inference happens client-side via SDK
+    const remaining = isSubscribed ? 'unlimited' : Math.max(creditsBalance - 1, 0);
+    res.json({
+      response: 'This is a placeholder response. The actual inference happens client-side via the SDK.',
+      sessionId,
+      model,
+      creditsRemaining: remaining,
+      ...(!isSubscribed && creditsBalance <= 1 && { credits_exhausted: true, upgrade_message: 'Your free inferences are used up. Subscribe for unlimited at $10/device/month.' })
     });
-
-    res.json({ url: session.url });
   } catch (err) {
-    console.error('Billing portal error:', err);
-    res.status(500).json({ error: 'Failed to create billing portal session' });
+    console.error('Widget generate error:', err);
+    res.status(500).json({ error: 'Failed to generate response' });
   }
 });
 

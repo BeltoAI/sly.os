@@ -3,22 +3,28 @@ import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { getBillingStatus, createCheckout, openBillingPortal } from '@/lib/api';
+import { getBillingStatus, createCheckout, openBillingPortal, validateDiscount, createCheckoutWithDiscount, getCreditsBalance } from '@/lib/api';
 import {
-  CreditCard, Zap, Shield, Check, AlertTriangle, Loader2, X, TrendingUp
+  CreditCard, Zap, Shield, Check, AlertTriangle, Loader2, X, TrendingUp, Coins, Tag
 } from 'lucide-react';
 
 export default function BillingPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [billingStatus, setBillingStatus] = useState<any>(null);
+  const [creditsBalance, setCreditsBalance] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [discountCode, setDiscountCode] = useState('');
+  const [discountError, setDiscountError] = useState('');
+  const [appliedDiscount, setAppliedDiscount] = useState<any>(null);
+  const [validateLoading, setValidateLoading] = useState(false);
 
   useEffect(() => {
     loadBillingStatus();
+    loadCreditsBalance();
 
     // Check for success/canceled params
     const success = searchParams.get('success');
@@ -42,10 +48,43 @@ export default function BillingPage() {
     }
   };
 
+  const loadCreditsBalance = async () => {
+    try {
+      const data = await getCreditsBalance();
+      setCreditsBalance(data);
+    } catch (err) {
+      console.error('Failed to load credits balance:', err);
+    }
+  };
+
+  const handleValidateDiscount = async () => {
+    if (!discountCode.trim()) {
+      setDiscountError('Please enter a discount code');
+      return;
+    }
+
+    setValidateLoading(true);
+    setDiscountError('');
+
+    try {
+      const result = await validateDiscount(discountCode);
+      setAppliedDiscount(result);
+      setDiscountCode('');
+      setNotification({ type: 'success', message: `Discount applied: ${result.discount_percentage || result.amount}% OFF` });
+    } catch (err: any) {
+      setDiscountError(err.response?.data?.error || 'Invalid discount code');
+      setAppliedDiscount(null);
+    } finally {
+      setValidateLoading(false);
+    }
+  };
+
   const handleSubscribe = async () => {
     setCheckoutLoading(true);
     try {
-      const session = await createCheckout();
+      const session = appliedDiscount
+        ? await createCheckoutWithDiscount(appliedDiscount.code)
+        : await createCheckout();
       if (session.url) {
         window.location.href = session.url;
       }
@@ -126,6 +165,36 @@ export default function BillingPage() {
       </div>
 
       {notification && <NotificationBanner notification={notification} />}
+
+      {/* Trial Days Remaining Card */}
+      {billingStatus?.subscription_status === 'trial' && billingStatus?.trial_days_remaining !== undefined && (
+        <div className="mb-6 p-6 rounded-lg bg-gradient-to-r from-[#3b82f6]/10 to-[#FF4D00]/10 border border-[#3b82f6]/20">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div>
+              <p className="text-xs text-[#555555] uppercase tracking-wider font-medium mb-3">Trial Days Remaining</p>
+              <p className="text-5xl font-bold text-[#EDEDED]">{billingStatus.trial_days_remaining}</p>
+              <p className="text-xs text-[#888888] mt-2">Days left in your free trial</p>
+            </div>
+            <div className="md:col-span-2">
+              <p className="text-xs text-[#555555] uppercase tracking-wider font-medium mb-3">Trial Progress</p>
+              <div className="space-y-3">
+                <div className="w-full h-2 bg-[rgba(255,255,255,0.06)] rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#3b82f6] to-[#FF4D00] transition-all duration-300"
+                    style={{
+                      width: `${Math.max(0, Math.min(100, ((billingStatus.trial_days_total - billingStatus.trial_days_remaining) / billingStatus.trial_days_total) * 100))}%`
+                    }}
+                  />
+                </div>
+                <div className="flex justify-between text-xs text-[#888888]">
+                  <span>{billingStatus.trial_days_total - billingStatus.trial_days_remaining} of {billingStatus.trial_days_total} days used</span>
+                  <span>Trial ends: {billingStatus.trial_end_date ? new Date(billingStatus.trial_end_date).toLocaleDateString() : 'N/A'}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
         {/* Subscription Status Card */}
@@ -261,6 +330,123 @@ export default function BillingPage() {
                 </Button>
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Discount Code Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Tag className="w-4 h-4 text-[#FF4D00]" />
+              Discount Code
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {!appliedDiscount ? (
+              <>
+                <div>
+                  <label className="text-xs text-[#555555] uppercase tracking-wider font-medium block mb-2">
+                    Enter Discount Code
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={discountCode}
+                      onChange={(e) => {
+                        setDiscountCode(e.target.value.toUpperCase());
+                        setDiscountError('');
+                      }}
+                      onKeyPress={(e) => e.key === 'Enter' && handleValidateDiscount()}
+                      placeholder="Enter code"
+                      className="flex-1 px-3 py-2 rounded-lg bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] text-[#EDEDED] placeholder-[#555555] focus:outline-none focus:border-[#FF4D00]/30 focus:bg-[rgba(255,255,255,0.06)] transition-colors text-sm"
+                    />
+                    <Button
+                      onClick={handleValidateDiscount}
+                      disabled={validateLoading || !discountCode.trim()}
+                      className="bg-[#FF4D00] hover:bg-[#FF5C1A] text-white font-semibold h-9"
+                    >
+                      {validateLoading ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        'Apply'
+                      )}
+                    </Button>
+                  </div>
+                </div>
+                {discountError && (
+                  <p className="text-xs text-[#ef4444]">{discountError}</p>
+                )}
+              </>
+            ) : (
+              <div className="space-y-3">
+                <div className="p-3 rounded-lg bg-[#4ade80]/10 border border-[#4ade80]/20">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-[#555555] uppercase tracking-wider font-medium">Applied Discount</p>
+                      <p className="text-lg font-bold text-[#EDEDED] mt-1">{appliedDiscount.discount_percentage || appliedDiscount.amount}% OFF</p>
+                      <p className="text-xs text-[#888888] mt-1">Code: {appliedDiscount.code}</p>
+                    </div>
+                    <Check className="w-5 h-5 text-[#4ade80]" />
+                  </div>
+                </div>
+                <Button
+                  onClick={() => {
+                    setAppliedDiscount(null);
+                    setDiscountCode('');
+                  }}
+                  variant="outline"
+                  className="w-full text-sm"
+                >
+                  Remove Discount
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Free Inferences Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Coins className="w-4 h-4 text-[#FF4D00]" />
+              Free Inferences
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div>
+              <p className="text-xs text-[#555555] uppercase tracking-wider font-medium mb-2">
+                {creditsBalance?.is_subscribed ? 'Subscription Status' : 'Free Inferences Remaining'}
+              </p>
+              {creditsBalance?.is_subscribed ? (
+                <>
+                  <p className="text-3xl font-bold text-[#22c55e]">Unlimited</p>
+                  <p className="text-xs text-[#4ade80] mt-1">Active subscription — no limits</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-3xl font-bold text-[#EDEDED]">
+                    {typeof creditsBalance?.balance === 'number' ? creditsBalance.balance : 100}
+                  </p>
+                  <p className="text-xs text-[#888888] mt-1">of 100 free inferences</p>
+                  {/* Progress bar */}
+                  <div className="w-full h-2 bg-[rgba(255,255,255,0.06)] rounded-full overflow-hidden mt-3">
+                    <div
+                      className="h-full bg-gradient-to-r from-[#FF4D00] to-[#FF6B35] transition-all"
+                      style={{ width: `${Math.max(0, Math.min(100, ((typeof creditsBalance?.balance === 'number' ? creditsBalance.balance : 100) / 100) * 100))}%` }}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="pt-4 border-t border-[rgba(255,255,255,0.06)]">
+              <p className="text-xs text-[#555555] uppercase tracking-wider font-medium mb-3">How it works</p>
+              <div className="space-y-2 text-sm text-[#888888]">
+                <p>Every new account gets <span className="text-[#EDEDED] font-semibold">100 free inferences</span> to try SlyOS.</p>
+                {!creditsBalance?.is_subscribed && (
+                  <p>After that, subscribe for <span className="text-[#FF4D00] font-semibold">unlimited inferences</span> at $10/device/month. No per-inference charges ever.</p>
+                )}
+              </div>
+            </div>
           </CardContent>
         </Card>
 
