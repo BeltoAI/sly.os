@@ -121,6 +121,21 @@ db.query(`
   console.log('✅ Credit ledger table initialized');
 }).catch((err) => { console.error('Credit ledger table creation failed:', err.message); });
 
+// Create analytics_daily table
+db.query(`
+  CREATE TABLE IF NOT EXISTS analytics_daily (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id),
+    date DATE NOT NULL DEFAULT CURRENT_DATE,
+    total_inferences INTEGER DEFAULT 0,
+    total_tokens_generated BIGINT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(organization_id, date)
+  )
+`).then(() => {
+  console.log('✅ Analytics daily table initialized');
+}).catch((err) => { console.error('Analytics daily table creation failed:', err.message); });
+
 // Device enabled/disabled column
 db.query(`
   ALTER TABLE devices ADD COLUMN IF NOT EXISTS enabled BOOLEAN DEFAULT true;
@@ -876,8 +891,7 @@ app.post('/api/telemetry', authenticate, checkBillingStatus, async (req, res) =>
             // Free tier: deduct 1 credit per inference
             const currentBalance = org.credits_balance ?? 100;
             if (currentBalance > 0) {
-              const newBalance = currentBalance - 1;
-              await db.query('UPDATE organizations SET credits_balance = $1 WHERE id = $2', [newBalance, req.user.org_id]);
+              await db.query('UPDATE organizations SET credits_balance = GREATEST(credits_balance - 1, 0) WHERE id = $1', [req.user.org_id]);
               await db.query('INSERT INTO credit_ledger (organization_id, amount, reason) VALUES ($1, $2, $3)', [req.user.org_id, -1, 'Inference usage']);
             }
             // When credits exhausted: still allow the inference but warn in response
@@ -1010,11 +1024,6 @@ app.post('/api/billing/validate-discount', authenticate, async (req, res) => {
   }
 });
 
-// Update create-checkout to support discount codes
-const originalCreateCheckout = app._router.stack.find(layer =>
-  layer.route && layer.route.path === '/api/billing/create-checkout'
-);
-
 app.post('/api/billing/create-checkout', authenticate, async (req, res) => {
   const { discountCode } = req.body;
   try {
@@ -1035,9 +1044,8 @@ app.post('/api/billing/create-checkout', authenticate, async (req, res) => {
     const totalDevices = parseInt(deviceResult.rows[0].device_count) || 0;
     const billableDevices = Math.max(totalDevices - 1, 0); // First device is free
 
-    if (billableDevices === 0) {
-      return res.status(400).json({ error: 'Your first device is free! No subscription needed yet. Add a second device to subscribe.' });
-    }
+    // Allow subscription even with 0 devices — user gets unlimited inferences
+    const subscriptionQuantity = Math.max(billableDevices, 1);
 
     // Create or retrieve Stripe customer
     let customerId = org.stripe_customer_id;
@@ -1071,12 +1079,20 @@ app.post('/api/billing/create-checkout', authenticate, async (req, res) => {
         if (discount.active && (!discount.expires_at || new Date(discount.expires_at) > new Date()) &&
             (!discount.max_uses || discount.times_used < discount.max_uses)) {
 
-          // Create Stripe coupon
-          const coupon = await stripe.coupons.create({
-            percent_off: discount.percent_off,
-            duration: 'repeating',
-            duration_in_months: 1
-          });
+          // Reuse existing coupon or create one with a deterministic ID
+          const couponId = `SLYOS_${discount.percent_off}_OFF`;
+          let coupon;
+          try {
+            coupon = await stripe.coupons.retrieve(couponId);
+          } catch (e) {
+            coupon = await stripe.coupons.create({
+              id: couponId,
+              percent_off: discount.percent_off,
+              duration: 'repeating',
+              duration_in_months: 3,
+              name: `SlyOS ${discount.percent_off}% Off`
+            });
+          }
 
           discounts = [{ coupon: coupon.id }];
 
@@ -1106,7 +1122,9 @@ app.post('/api/billing/create-checkout', authenticate, async (req, res) => {
             currency: 'usd',
             product_data: {
               name: 'SlyOS Pro',
-              description: `SlyOS Edge AI — $10/device/month (${billableDevices} billable device${billableDevices !== 1 ? 's' : ''}, 1st device free)`
+              description: billableDevices > 0
+                ? `SlyOS Edge AI — $10/device/month (${billableDevices} billable device${billableDevices !== 1 ? 's' : ''}, 1st device free)`
+                : 'SlyOS Pro — Unlimited AI inferences ($10/month, first device free)'
             },
             unit_amount: 1000,
             recurring: {
@@ -1114,7 +1132,7 @@ app.post('/api/billing/create-checkout', authenticate, async (req, res) => {
               interval_count: 1
             }
           },
-          quantity: billableDevices
+          quantity: subscriptionQuantity
         }
       ],
       ...(!hasUsedTrial && { subscription_data: { trial_period_days: 30 } }),
@@ -1195,6 +1213,44 @@ app.post('/api/credits/purchase', authenticate, async (req, res) => {
     action: 'subscribe',
     billing_url: '/dashboard/billing'
   });
+});
+
+// API Key management
+app.get('/api/keys', authenticate, async (req, res) => {
+  try {
+    const orgResult = await db.query(
+      'SELECT api_key, name FROM organizations WHERE id = $1',
+      [req.user.org_id]
+    );
+    if (orgResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Organization not found' });
+    }
+    // Return the org's API key as a list (single key per org for now)
+    res.json([{
+      id: req.user.org_id,
+      key: orgResult.rows[0].api_key,
+      name: 'Default API Key',
+      created_at: new Date().toISOString()
+    }]);
+  } catch (err) {
+    console.error('List keys error:', err);
+    res.status(500).json({ error: 'Failed to list API keys' });
+  }
+});
+
+app.post('/api/keys/regenerate', authenticate, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Only admins can regenerate API keys' });
+  }
+  try {
+    const crypto = require('crypto');
+    const newKey = 'sk_live_' + crypto.randomBytes(24).toString('hex');
+    await db.query('UPDATE organizations SET api_key = $1 WHERE id = $2', [newKey, req.user.org_id]);
+    res.json({ key: newKey, message: 'API key regenerated. Update your SDK configuration.' });
+  } catch (err) {
+    console.error('Regenerate key error:', err);
+    res.status(500).json({ error: 'Failed to regenerate API key' });
+  }
 });
 
 // Widget endpoints

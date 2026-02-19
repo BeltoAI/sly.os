@@ -219,7 +219,7 @@ class ChatViewController: UIViewController {
           className={`flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${
             activeTab === 'mobile'
               ? 'bg-[#FF4D00] text-white'
-              : 'bg-[#0A0A0A] text-[#888888] border border-[rgba(255,255,white,0.08)] hover:text-[#EDEDED]'
+              : 'bg-[#0A0A0A] text-[#888888] border border-[rgba(255,255,255,0.08)] hover:text-[#EDEDED]'
           }`}
         >
           <Smartphone className="w-4 h-4" />
@@ -699,7 +699,7 @@ Goodbye! 👋`}
                 <div className="space-y-4">
                   <div>
                     <p className="text-sm font-semibold text-[#EDEDED] mb-3">Package.swift:</p>
-                    <div className="bg-[#050505] border border-[rgba(255,255,white,0.06)] rounded-xl p-4 font-mono text-xs text-[#4ade80] overflow-x-auto mb-3">
+                    <div className="bg-[#050505] border border-[rgba(255,255,255,0.06)] rounded-xl p-4 font-mono text-xs text-[#4ade80] overflow-x-auto mb-3">
                       .package(url: "https://github.com/BeltoAI/slyos-swift.git", from: "1.0.0")
                     </div>
                     <Button
@@ -727,7 +727,7 @@ Goodbye! 👋`}
 
                   <div>
                     <p className="text-sm font-semibold text-[#EDEDED] mb-3">ViewController.swift:</p>
-                    <div className="bg-[#050505] border border-[rgba(255,255,white,0.06)] rounded-xl p-4 font-mono text-xs text-[#4ade80] overflow-x-auto max-h-96 overflow-y-auto mb-3 whitespace-pre-wrap break-words leading-relaxed">
+                    <div className="bg-[#050505] border border-[rgba(255,255,255,0.06)] rounded-xl p-4 font-mono text-xs text-[#4ade80] overflow-x-auto max-h-96 overflow-y-auto mb-3 whitespace-pre-wrap break-words leading-relaxed">
                       {iosCode}
                     </div>
                     <Button

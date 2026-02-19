@@ -116,7 +116,20 @@ public final class SlyOS {
 
     /// Get available models grouped by category
     public func getAvailableModels() -> [String: [ModelInfo]] {
-        return getAvailableModels()
+        var grouped: [String: [ModelInfo]] = [
+            "llm": [],
+            "stt": []
+        ]
+
+        for (_, info) in modelRegistry {
+            let categoryKey = info.category.rawValue
+            if grouped[categoryKey] == nil {
+                grouped[categoryKey] = []
+            }
+            grouped[categoryKey]?.append(info)
+        }
+
+        return grouped
     }
 
     /// Check if a model can run on this device

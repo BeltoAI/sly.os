@@ -70,7 +70,7 @@ export default function BillingPage() {
       const result = await validateDiscount(discountCode);
       setAppliedDiscount(result);
       setDiscountCode('');
-      setNotification({ type: 'success', message: `Discount applied: ${result.discount_percentage || result.amount}% OFF` });
+      setNotification({ type: 'success', message: `Discount applied: ${result.percent_off}% OFF` });
     } catch (err: any) {
       setDiscountError(err.response?.data?.error || 'Invalid discount code');
       setAppliedDiscount(null);
@@ -226,7 +226,7 @@ export default function BillingPage() {
                 <div className="space-y-3">
                   <div>
                     <p className="text-xs text-[#555555] uppercase tracking-wider font-medium mb-1">Trial Remaining</p>
-                    <p className="text-2xl font-bold text-[#EDEDED]">{billingStatus.days_remaining || 0} days</p>
+                    <p className="text-2xl font-bold text-[#EDEDED]">{billingStatus.trial_days_remaining || 0} days</p>
                   </div>
                   <div className="text-sm text-[#888888]">
                     <p>Trial ends: <span className="text-[#EDEDED] font-medium">{new Date(billingStatus.trial_end_date).toLocaleDateString()}</span></p>
@@ -383,7 +383,7 @@ export default function BillingPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-xs text-[#555555] uppercase tracking-wider font-medium">Applied Discount</p>
-                      <p className="text-lg font-bold text-[#EDEDED] mt-1">{appliedDiscount.discount_percentage || appliedDiscount.amount}% OFF</p>
+                      <p className="text-lg font-bold text-[#EDEDED] mt-1">{appliedDiscount.percent_off}% OFF</p>
                       <p className="text-xs text-[#888888] mt-1">Code: {appliedDiscount.code}</p>
                     </div>
                     <Check className="w-5 h-5 text-[#4ade80]" />

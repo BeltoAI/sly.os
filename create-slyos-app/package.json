@@ -1,0 +1,23 @@
+{
+  "name": "create-slyos-app",
+  "version": "1.0.0",
+  "description": "Create a beautiful React chat app powered by SlyOS on-device AI",
+  "bin": {
+    "create-slyos-app": "./bin/create.js"
+  },
+  "keywords": [
+    "slyos",
+    "ai",
+    "chatbot",
+    "react",
+    "on-device",
+    "llm",
+    "create-app"
+  ],
+  "author": "Emil Shirokikh",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BeltoAI/sly.os.git"
+  }
+}
