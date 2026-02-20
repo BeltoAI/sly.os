@@ -260,7 +260,7 @@ const allowedOrigins = process.env.CORS_ORIGIN ?
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin) || (origin && (origin.endsWith('.vercel.app') && origin.includes('sly')))) {
+    if (!origin || allowedOrigins.includes(origin) || (origin && origin.endsWith('.vercel.app') && (origin.includes('sly') || origin.includes('dashboard') || origin.includes('belto')))) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
