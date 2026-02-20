@@ -269,10 +269,18 @@ app.use(cors({
   credentials: true
 }));
 
-// Rate limiting for auth endpoints
-const rateLimit = require('express-rate-limit');
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, message: { error: 'Too many requests, please try again later' } });
-const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 200, message: { error: 'Rate limit exceeded' } });
+// Rate limiting for auth endpoints (soft dependency — server starts without it)
+let authLimiter, apiLimiter;
+try {
+  const rateLimit = require('express-rate-limit');
+  authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, message: { error: 'Too many requests, please try again later' } });
+  apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 200, message: { error: 'Rate limit exceeded' } });
+  console.log('✅ Rate limiting enabled');
+} catch (e) {
+  console.warn('⚠️ express-rate-limit not installed — rate limiting disabled. Run: npm install express-rate-limit');
+  authLimiter = (req, res, next) => next();
+  apiLimiter = (req, res, next) => next();
+}
 
 // Stripe webhook endpoint (must be before express.json() middleware)
 app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
