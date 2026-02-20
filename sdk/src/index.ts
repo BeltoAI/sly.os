@@ -151,6 +151,57 @@ interface OpenAICompatibleClient {
   };
 }
 
+// ─── RAG Types ──────────────────────────────────────────────────
+
+interface RAGOptions {
+  knowledgeBaseId: string;
+  query: string;
+  topK?: number;
+  modelId: string;
+  temperature?: number;
+  maxTokens?: number;
+}
+
+interface RAGChunk {
+  id: string;
+  documentId: string;
+  documentName: string;
+  content: string;
+  similarityScore: number;
+  metadata?: Record<string, any>;
+}
+
+interface RAGResponse {
+  query: string;
+  retrievedChunks: RAGChunk[];
+  generatedResponse: string;
+  context: string;
+  latencyMs: number;
+  tierUsed: 1 | 2 | 3;
+}
+
+interface OfflineIndex {
+  metadata: {
+    kb_id: string;
+    kb_name: string;
+    chunk_size: number;
+    embedding_dim: number;
+    total_chunks: number;
+    synced_at: string;
+    expires_at: string;
+    sync_token: string;
+  };
+  chunks: Array<{
+    id: string;
+    document_id: string;
+    document_name: string;
+    content: string;
+    chunk_index: number;
+    embedding: number[] | null;
+    metadata: Record<string, any>;
+  }>;
+}
+
 // ─── Model Registry ─────────────────────────────────────────────────
 
 const modelMap: Record<string, ModelInfo> = {
@@ -1000,6 +1051,268 @@ class SlyOS {
     return modelMapping[slyModelId] || 'gpt-4o-mini';
   }
 
+  // ═══════════════════════════════════════════════════════════
+  // RAG — Retrieval Augmented Generation
+  // ═══════════════════════════════════════════════════════════
+
+  private localEmbeddingModel: any = null;
+  private offlineIndexes: Map<string, OfflineIndex> = new Map();
+
+  /**
+   * Tier 2: Cloud-indexed RAG with local inference.
+   * Retrieves relevant chunks from server, generates response locally.
+   */
+  async ragQuery(options: RAGOptions): Promise<RAGResponse> {
+    const startTime = Date.now();
+
+    try {
+      // Step 1: Retrieve relevant chunks from backend
+      const searchResponse = await axios.post(
+        `${this.apiUrl}/api/rag/knowledge-bases/${options.knowledgeBaseId}/query`,
+        {
+          query: options.query,
+          top_k: options.topK || 5,
+          model_id: options.modelId
+        },
+        { headers: { Authorization: `Bearer ${this.token}` } }
+      );
+
+      const { retrieved_chunks, prompt_template, context } = searchResponse.data;
+
+      // Step 2: Generate response locally using the augmented prompt
+      const response = await this.generate(options.modelId, prompt_template, {
+        temperature: options.temperature,
+        maxTokens: options.maxTokens,
+      });
+
+      return {
+        query: options.query,
+        retrievedChunks: retrieved_chunks.map((c: any) => ({
+          id: c.id,
+          documentId: c.document_id,
+          documentName: c.document_name,
+          content: c.content,
+          similarityScore: c.similarity_score,
+          metadata: c.metadata
+        })),
+        generatedResponse: response,
+        context,
+        latencyMs: Date.now() - startTime,
+        tierUsed: 2,
+      };
+    } catch (error: any) {
+      this.emitEvent?.('error', { stage: 'rag_query', error: error.message });
+      throw new Error(`RAG query failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Tier 1: Fully local RAG. Zero network calls.
+   * Documents are chunked/embedded on-device, retrieval and generation all local.
+   */
+  async ragQueryLocal(options: RAGOptions & { documents: Array<{ content: string; name?: string }> }): Promise<RAGResponse> {
+    const startTime = Date.now();
+
+    try {
+      // Step 1: Load embedding model if needed
+      if (!this.localEmbeddingModel) {
+        await this.loadEmbeddingModel();
+      }
+
+      // Step 2: Chunk documents if not already chunked
+      const allChunks: Array<{ content: string; documentName: string; embedding?: number[] }> = [];
+      for (const doc of options.documents) {
+        const chunks = this.chunkTextLocal(doc.content, 512, 128);
+        for (const chunk of chunks) {
+          const embedding = await this.embedTextLocal(chunk);
+          allChunks.push({ content: chunk, documentName: doc.name || 'Document', embedding });
+        }
+      }
+
+      // Step 3: Embed query
+      const queryEmbedding = await this.embedTextLocal(options.query);
+
+      // Step 4: Cosine similarity search
+      const scored = allChunks
+        .filter(c => c.embedding)
+        .map(c => ({
+          ...c,
+          similarityScore: this.cosineSimilarity(queryEmbedding, c.embedding!)
+        }))
+        .sort((a, b) => b.similarityScore - a.similarityScore)
+        .slice(0, options.topK || 5);
+
+      // Step 5: Build context
+      const context = scored.map(c => `[Source: ${c.documentName}]\n${c.content}`).join('\n\n---\n\n');
+      const prompt = `You are a helpful assistant. Answer based ONLY on the following context:\n\n${context}\n\nQuestion: ${options.query}\n\nAnswer:`;
+
+      // Step 6: Generate locally
+      const response = await this.generate(options.modelId, prompt, {
+        temperature: options.temperature,
+        maxTokens: options.maxTokens,
+      });
+
+      return {
+        query: options.query,
+        retrievedChunks: scored.map((c, i) => ({
+          id: `local-${i}`,
+          documentId: 'local',
+          documentName: c.documentName,
+          content: c.content,
+          similarityScore: c.similarityScore,
+          metadata: {}
+        })),
+        generatedResponse: response,
+        context,
+        latencyMs: Date.now() - startTime,
+        tierUsed: 1,
+      };
+    } catch (error: any) {
+      this.emitEvent?.('error', { stage: 'rag_local', error: error.message });
+      throw new Error(`Local RAG failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Tier 3: Offline RAG using a synced knowledge base.
+   * First call syncKnowledgeBase(), then use this for offline queries.
+   */
+  async ragQueryOffline(options: RAGOptions): Promise<RAGResponse> {
+    const startTime = Date.now();
+
+    const index = this.offlineIndexes.get(options.knowledgeBaseId);
+    if (!index) {
+      throw new Error(`Knowledge base "${options.knowledgeBaseId}" not synced. Call syncKnowledgeBase() first.`);
+    }
+
+    // Check expiry
+    if (new Date(index.metadata.expires_at) < new Date()) {
+      throw new Error('Offline index has expired. Please re-sync.');
+    }
+
+    try {
+      // Load embedding model
+      if (!this.localEmbeddingModel) {
+        await this.loadEmbeddingModel();
+      }
+
+      // Embed query
+      const queryEmbedding = await this.embedTextLocal(options.query);
+
+      // Search offline index
+      const scored = index.chunks
+        .filter(c => c.embedding && c.embedding.length > 0)
+        .map(c => ({
+          ...c,
+          similarityScore: this.cosineSimilarity(queryEmbedding, c.embedding!)
+        }))
+        .sort((a, b) => b.similarityScore - a.similarityScore)
+        .slice(0, options.topK || 5);
+
+      // Build context
+      const context = scored.map(c => `[Source: ${c.document_name}]\n${c.content}`).join('\n\n---\n\n');
+      const prompt = `You are a helpful assistant. Answer based ONLY on the following context:\n\n${context}\n\nQuestion: ${options.query}\n\nAnswer:`;
+
+      // Generate locally
+      const response = await this.generate(options.modelId, prompt, {
+        temperature: options.temperature,
+        maxTokens: options.maxTokens,
+      });
+
+      return {
+        query: options.query,
+        retrievedChunks: scored.map(c => ({
+          id: c.id,
+          documentId: c.document_id,
+          documentName: c.document_name,
+          content: c.content,
+          similarityScore: c.similarityScore,
+          metadata: c.metadata
+        })),
+        generatedResponse: response,
+        context,
+        latencyMs: Date.now() - startTime,
+        tierUsed: 3,
+      };
+    } catch (error: any) {
+      this.emitEvent?.('error', { stage: 'rag_offline', error: error.message });
+      throw new Error(`Offline RAG failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Sync a knowledge base for offline use (Tier 3).
+   * Downloads chunks + embeddings from server, stores locally.
+   */
+  async syncKnowledgeBase(knowledgeBaseId: string, deviceId?: string): Promise<{ chunkCount: number; sizeMb: number; expiresAt: string }> {
+    try {
+      const response = await axios.post(
+        `${this.apiUrl}/api/rag/knowledge-bases/${knowledgeBaseId}/sync`,
+        { device_id: deviceId || this.deviceId || 'sdk-device' },
+        { headers: { Authorization: `Bearer ${this.token}` } }
+      );
+
+      const { sync_package, chunk_count, package_size_mb, expires_at } = response.data;
+      this.offlineIndexes.set(knowledgeBaseId, sync_package);
+
+      return {
+        chunkCount: chunk_count,
+        sizeMb: package_size_mb,
+        expiresAt: expires_at
+      };
+    } catch (error: any) {
+      throw new Error(`Sync failed: ${error.message}`);
+    }
+  }
+
+  // --- RAG Helper Methods ---
+
+  private async loadEmbeddingModel(): Promise<void> {
+    this.emitProgress?.('downloading', 0, 'Loading embedding model (all-MiniLM-L6-v2)...');
+    try {
+      const { pipeline } = await import('@huggingface/transformers');
+      this.localEmbeddingModel = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+      this.emitProgress?.('ready', 100, 'Embedding model loaded');
+    } catch (error: any) {
+      this.emitProgress?.('error', 0, `Embedding model failed: ${error.message}`);
+      throw error;
+    }
+  }
+
+  private async embedTextLocal(text: string): Promise<number[]> {
+    if (!this.localEmbeddingModel) throw new Error('Embedding model not loaded');
+    const result = await this.localEmbeddingModel(text, { pooling: 'mean', normalize: true });
+    return Array.from(result.data);
+  }
+
+  private cosineSimilarity(a: number[], b: number[]): number {
+    let dot = 0, normA = 0, normB = 0;
+    for (let i = 0; i < a.length; i++) {
+      dot += a[i] * b[i];
+      normA += a[i] * a[i];
+      normB += b[i] * b[i];
+    }
+    return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+  }
+
+  private chunkTextLocal(text: string, chunkSize: number = 512, overlap: number = 128): string[] {
+    if (!text || text.length === 0) return [];
+    const chunks: string[] = [];
+    let start = 0;
+    while (start < text.length) {
+      let end = start + chunkSize;
+      if (end < text.length) {
+        const bp = Math.max(text.lastIndexOf('.', end), text.lastIndexOf('\n', end));
+        if (bp > start + chunkSize / 2) end = bp + 1;
+      }
+      const chunk = text.slice(start, end).trim();
+      if (chunk.length > 20) chunks.push(chunk);
+      start = end - overlap;
+      if (start >= text.length) break;
+    }
+    return chunks;
+  }
+
   // ── Static OpenAI Compatible Factory ────────────────────────────────
 
   static openaiCompatible(config: { apiKey: string; apiUrl?: string; fallback?: FallbackConfig }): OpenAICompatibleClient {
@@ -1045,4 +1358,8 @@ export type {
   FallbackConfig,
   FallbackProvider,
   OpenAICompatibleClient,
+  RAGOptions,
+  RAGChunk,
+  RAGResponse,
+  OfflineIndex,
 };

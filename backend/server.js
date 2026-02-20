@@ -136,6 +136,104 @@ db.query(`
   console.log('✅ Analytics daily table initialized');
 }).catch((err) => { console.error('Analytics daily table creation failed:', err.message); });
 
+// === RAG Tables ===
+// Enable pgvector extension (requires pgvector installed on DB)
+db.query('CREATE EXTENSION IF NOT EXISTS vector').then(() => {
+  console.log('✅ pgvector extension enabled');
+}).catch((err) => { console.log('pgvector extension note:', err.message); });
+
+// Knowledge bases table
+db.query(`
+  CREATE TABLE IF NOT EXISTS knowledge_bases (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id),
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    tier INTEGER NOT NULL DEFAULT 2,
+    chunk_size INTEGER NOT NULL DEFAULT 512,
+    chunk_overlap INTEGER NOT NULL DEFAULT 128,
+    embedding_model VARCHAR(255) NOT NULL DEFAULT 'all-MiniLM-L6-v2',
+    document_count INTEGER DEFAULT 0,
+    chunk_count INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+  )
+`).then(() => {
+  console.log('✅ Knowledge bases table initialized');
+}).catch((err) => { console.error('Knowledge bases table creation failed:', err.message); });
+
+// RAG documents table
+db.query(`
+  CREATE TABLE IF NOT EXISTS rag_documents (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    knowledge_base_id UUID NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    organization_id UUID NOT NULL REFERENCES organizations(id),
+    name VARCHAR(255) NOT NULL,
+    file_type VARCHAR(50),
+    file_size_bytes INTEGER,
+    content TEXT,
+    source_url VARCHAR(1024),
+    indexed BOOLEAN DEFAULT false,
+    indexing_error TEXT,
+    chunk_count INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW()
+  )
+`).then(() => {
+  console.log('✅ RAG documents table initialized');
+}).catch((err) => { console.error('RAG documents table creation failed:', err.message); });
+
+// Document chunks with vector embeddings
+db.query(`
+  CREATE TABLE IF NOT EXISTS document_chunks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    document_id UUID NOT NULL REFERENCES rag_documents(id) ON DELETE CASCADE,
+    knowledge_base_id UUID NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    organization_id UUID NOT NULL REFERENCES organizations(id),
+    chunk_index INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    embedding vector(384),
+    metadata JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP DEFAULT NOW()
+  )
+`).then(() => {
+  console.log('✅ Document chunks table initialized');
+}).catch((err) => { console.error('Document chunks table creation failed:', err.message); });
+
+// RAG query log for analytics
+db.query(`
+  CREATE TABLE IF NOT EXISTS rag_queries (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    knowledge_base_id UUID NOT NULL REFERENCES knowledge_bases(id),
+    organization_id UUID NOT NULL REFERENCES organizations(id),
+    query_text TEXT NOT NULL,
+    retrieved_chunks INTEGER DEFAULT 0,
+    model_used VARCHAR(255),
+    tier_used INTEGER,
+    latency_ms INTEGER,
+    success BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT NOW()
+  )
+`).then(() => {
+  console.log('✅ RAG queries table initialized');
+}).catch((err) => { console.error('RAG queries table creation failed:', err.message); });
+
+// Device RAG sync tracking (Tier 3)
+db.query(`
+  CREATE TABLE IF NOT EXISTS device_rag_sync (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    device_id VARCHAR(255) NOT NULL,
+    organization_id UUID NOT NULL REFERENCES organizations(id),
+    knowledge_base_id UUID NOT NULL REFERENCES knowledge_bases(id),
+    sync_token VARCHAR(64),
+    chunk_count INTEGER DEFAULT 0,
+    synced_at TIMESTAMP DEFAULT NOW(),
+    expires_at TIMESTAMP,
+    UNIQUE(device_id, knowledge_base_id)
+  )
+`).then(() => {
+  console.log('✅ Device RAG sync table initialized');
+}).catch((err) => { console.error('Device RAG sync table creation failed:', err.message); });
+
 // Device enabled/disabled column
 db.query(`
   ALTER TABLE devices ADD COLUMN IF NOT EXISTS enabled BOOLEAN DEFAULT true;
@@ -1344,6 +1442,565 @@ app.post('/api/widget/:orgApiKey/generate', async (req, res) => {
     res.status(500).json({ error: 'Failed to generate response' });
   }
 });
+
+// ══════════════════════════════════════════════════════════
+// RAG (Retrieval Augmented Generation) Endpoints
+// ══════════════════════════════════════════════════════════
+
+const multer = require('multer');
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } }); // 50MB max
+
+// --- Knowledge Base CRUD ---
+
+app.post('/api/rag/knowledge-bases', authenticate, async (req, res) => {
+  const { name, description, tier, chunk_size, chunk_overlap } = req.body;
+  if (!name) return res.status(400).json({ error: 'Name is required' });
+  try {
+    const result = await db.query(
+      `INSERT INTO knowledge_bases (organization_id, name, description, tier, chunk_size, chunk_overlap)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [req.user.org_id, name, description || '', tier || 2, chunk_size || 512, chunk_overlap || 128]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Create KB error:', err);
+    res.status(500).json({ error: 'Failed to create knowledge base' });
+  }
+});
+
+app.get('/api/rag/knowledge-bases', authenticate, async (req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT kb.*,
+        (SELECT COUNT(*) FROM rag_documents WHERE knowledge_base_id = kb.id) as document_count,
+        (SELECT COUNT(*) FROM document_chunks WHERE knowledge_base_id = kb.id) as chunk_count
+      FROM knowledge_bases kb
+      WHERE kb.organization_id = $1
+      ORDER BY kb.created_at DESC
+    `, [req.user.org_id]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('List KB error:', err);
+    res.status(500).json({ error: 'Failed to list knowledge bases' });
+  }
+});
+
+app.get('/api/rag/knowledge-bases/:kbId', authenticate, async (req, res) => {
+  try {
+    const kb = await db.query('SELECT * FROM knowledge_bases WHERE id = $1 AND organization_id = $2', [req.params.kbId, req.user.org_id]);
+    if (kb.rows.length === 0) return res.status(404).json({ error: 'Knowledge base not found' });
+
+    const docs = await db.query(
+      'SELECT id, name, file_type, file_size_bytes, chunk_count, indexed, created_at FROM rag_documents WHERE knowledge_base_id = $1 ORDER BY created_at DESC',
+      [req.params.kbId]
+    );
+    const chunkCount = await db.query('SELECT COUNT(*) as count FROM document_chunks WHERE knowledge_base_id = $1', [req.params.kbId]);
+    const queryCount = await db.query('SELECT COUNT(*) as count FROM rag_queries WHERE knowledge_base_id = $1', [req.params.kbId]);
+
+    res.json({
+      ...kb.rows[0],
+      documents: docs.rows,
+      total_chunks: parseInt(chunkCount.rows[0].count),
+      total_queries: parseInt(queryCount.rows[0].count)
+    });
+  } catch (err) {
+    console.error('Get KB error:', err);
+    res.status(500).json({ error: 'Failed to fetch knowledge base' });
+  }
+});
+
+app.put('/api/rag/knowledge-bases/:kbId', authenticate, async (req, res) => {
+  const { name, description, chunk_size, chunk_overlap } = req.body;
+  try {
+    const result = await db.query(
+      `UPDATE knowledge_bases SET name = COALESCE($1, name), description = COALESCE($2, description),
+       chunk_size = COALESCE($3, chunk_size), chunk_overlap = COALESCE($4, chunk_overlap), updated_at = NOW()
+       WHERE id = $5 AND organization_id = $6 RETURNING *`,
+      [name, description, chunk_size, chunk_overlap, req.params.kbId, req.user.org_id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Knowledge base not found' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Update KB error:', err);
+    res.status(500).json({ error: 'Failed to update knowledge base' });
+  }
+});
+
+app.delete('/api/rag/knowledge-bases/:kbId', authenticate, async (req, res) => {
+  try {
+    const result = await db.query('DELETE FROM knowledge_bases WHERE id = $1 AND organization_id = $2 RETURNING id', [req.params.kbId, req.user.org_id]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Knowledge base not found' });
+    res.json({ success: true, message: 'Knowledge base deleted' });
+  } catch (err) {
+    console.error('Delete KB error:', err);
+    res.status(500).json({ error: 'Failed to delete knowledge base' });
+  }
+});
+
+// --- Document Upload & Management ---
+
+app.post('/api/rag/knowledge-bases/:kbId/documents/upload', authenticate, upload.array('files', 10), async (req, res) => {
+  const { kbId } = req.params;
+  try {
+    // Verify KB exists and belongs to org
+    const kb = await db.query('SELECT * FROM knowledge_bases WHERE id = $1 AND organization_id = $2', [kbId, req.user.org_id]);
+    if (kb.rows.length === 0) return res.status(404).json({ error: 'Knowledge base not found' });
+
+    if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
+
+    const results = [];
+    for (const file of req.files) {
+      let textContent = '';
+      const ext = file.originalname.split('.').pop().toLowerCase();
+
+      // Extract text based on file type
+      if (ext === 'txt' || ext === 'md') {
+        textContent = file.buffer.toString('utf-8');
+      } else if (ext === 'csv') {
+        textContent = file.buffer.toString('utf-8');
+      } else if (ext === 'pdf') {
+        try {
+          const pdfParse = require('pdf-parse');
+          const pdfData = await pdfParse(file.buffer);
+          textContent = pdfData.text;
+        } catch (e) {
+          textContent = file.buffer.toString('utf-8'); // fallback
+        }
+      } else if (ext === 'docx') {
+        try {
+          const mammoth = require('mammoth');
+          const result = await mammoth.extractRawText({ buffer: file.buffer });
+          textContent = result.value;
+        } catch (e) {
+          textContent = file.buffer.toString('utf-8'); // fallback
+        }
+      } else {
+        textContent = file.buffer.toString('utf-8');
+      }
+
+      // Save document
+      const doc = await db.query(
+        `INSERT INTO rag_documents (knowledge_base_id, organization_id, name, file_type, file_size_bytes, content)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+        [kbId, req.user.org_id, file.originalname, ext, file.size, textContent]
+      );
+
+      // Chunk the document
+      const chunkSize = kb.rows[0].chunk_size || 512;
+      const chunkOverlap = kb.rows[0].chunk_overlap || 128;
+      const chunks = chunkText(textContent, chunkSize, chunkOverlap);
+
+      // Insert chunks
+      let chunkCount = 0;
+      for (let i = 0; i < chunks.length; i++) {
+        await db.query(
+          `INSERT INTO document_chunks (document_id, knowledge_base_id, organization_id, chunk_index, content, metadata)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [doc.rows[0].id, kbId, req.user.org_id, i, chunks[i], JSON.stringify({ source: file.originalname, chunk: i + 1, total: chunks.length })]
+        );
+        chunkCount++;
+      }
+
+      // Update document chunk count
+      await db.query('UPDATE rag_documents SET chunk_count = $1, indexed = false WHERE id = $2', [chunkCount, doc.rows[0].id]);
+
+      results.push({ id: doc.rows[0].id, name: file.originalname, file_type: ext, chunks: chunkCount, status: 'chunked' });
+    }
+
+    // Trigger embedding in background (non-blocking)
+    embedKnowledgeBase(kbId).catch(err => console.error('Background embedding error:', err));
+
+    res.status(201).json({ documents: results, message: 'Documents uploaded and chunked. Embedding in progress.' });
+  } catch (err) {
+    console.error('Upload error:', err);
+    res.status(500).json({ error: 'Failed to upload documents' });
+  }
+});
+
+app.post('/api/rag/knowledge-bases/:kbId/documents/scrape', authenticate, async (req, res) => {
+  const { kbId } = req.params;
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ error: 'URL is required' });
+
+  try {
+    const kb = await db.query('SELECT * FROM knowledge_bases WHERE id = $1 AND organization_id = $2', [kbId, req.user.org_id]);
+    if (kb.rows.length === 0) return res.status(404).json({ error: 'Knowledge base not found' });
+
+    // Fetch URL content
+    const https = require('https');
+    const http = require('http');
+    const fetchUrl = (targetUrl) => new Promise((resolve, reject) => {
+      const client = targetUrl.startsWith('https') ? https : http;
+      client.get(targetUrl, { headers: { 'User-Agent': 'SlyOS-Bot/1.0' } }, (response) => {
+        let data = '';
+        response.on('data', chunk => data += chunk);
+        response.on('end', () => resolve(data));
+        response.on('error', reject);
+      }).on('error', reject);
+    });
+
+    const htmlContent = await fetchUrl(url);
+    // Strip HTML tags for plain text
+    const textContent = htmlContent.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!textContent || textContent.length < 50) {
+      return res.status(400).json({ error: 'Could not extract meaningful content from URL' });
+    }
+
+    // Save as document
+    const doc = await db.query(
+      `INSERT INTO rag_documents (knowledge_base_id, organization_id, name, file_type, file_size_bytes, content, source_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [kbId, req.user.org_id, url.replace(/^https?:\/\//, '').slice(0, 100), 'url', textContent.length, textContent, url]
+    );
+
+    // Chunk it
+    const chunkSize = kb.rows[0].chunk_size || 512;
+    const chunkOverlap = kb.rows[0].chunk_overlap || 128;
+    const chunks = chunkText(textContent, chunkSize, chunkOverlap);
+
+    for (let i = 0; i < chunks.length; i++) {
+      await db.query(
+        `INSERT INTO document_chunks (document_id, knowledge_base_id, organization_id, chunk_index, content, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [doc.rows[0].id, kbId, req.user.org_id, i, chunks[i], JSON.stringify({ source: url, chunk: i + 1, total: chunks.length })]
+      );
+    }
+
+    await db.query('UPDATE rag_documents SET chunk_count = $1, indexed = false WHERE id = $2', [chunks.length, doc.rows[0].id]);
+
+    // Trigger embedding
+    embedKnowledgeBase(kbId).catch(err => console.error('Background embedding error:', err));
+
+    res.status(201).json({ document: doc.rows[0], chunks: chunks.length, message: 'URL scraped and chunked. Embedding in progress.' });
+  } catch (err) {
+    console.error('Scrape error:', err);
+    res.status(500).json({ error: 'Failed to scrape URL' });
+  }
+});
+
+app.get('/api/rag/knowledge-bases/:kbId/documents', authenticate, async (req, res) => {
+  try {
+    const docs = await db.query(
+      'SELECT id, name, file_type, file_size_bytes, source_url, chunk_count, indexed, created_at FROM rag_documents WHERE knowledge_base_id = $1 AND organization_id = $2 ORDER BY created_at DESC',
+      [req.params.kbId, req.user.org_id]
+    );
+    res.json(docs.rows);
+  } catch (err) {
+    console.error('List docs error:', err);
+    res.status(500).json({ error: 'Failed to list documents' });
+  }
+});
+
+app.delete('/api/rag/knowledge-bases/:kbId/documents/:docId', authenticate, async (req, res) => {
+  try {
+    const result = await db.query(
+      'DELETE FROM rag_documents WHERE id = $1 AND knowledge_base_id = $2 AND organization_id = $3 RETURNING id',
+      [req.params.docId, req.params.kbId, req.user.org_id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Document not found' });
+    res.json({ success: true, message: 'Document deleted' });
+  } catch (err) {
+    console.error('Delete doc error:', err);
+    res.status(500).json({ error: 'Failed to delete document' });
+  }
+});
+
+// --- Vector Search & RAG Query ---
+
+app.post('/api/rag/knowledge-bases/:kbId/search', authenticate, async (req, res) => {
+  const { query, top_k } = req.body;
+  if (!query) return res.status(400).json({ error: 'Query is required' });
+
+  try {
+    // Generate query embedding
+    const queryEmbedding = await generateEmbedding(query);
+    if (!queryEmbedding) {
+      // Fallback: keyword search if embedding fails
+      const results = await db.query(
+        `SELECT dc.id, dc.document_id, dc.content, dc.chunk_index, dc.metadata,
+                rd.name as document_name
+         FROM document_chunks dc
+         JOIN rag_documents rd ON dc.document_id = rd.id
+         WHERE dc.knowledge_base_id = $1 AND dc.organization_id = $2
+         AND dc.content ILIKE $3
+         ORDER BY dc.chunk_index LIMIT $4`,
+        [req.params.kbId, req.user.org_id, `%${query}%`, top_k || 5]
+      );
+      return res.json({ chunks: results.rows.map(r => ({ ...r, similarity_score: 0.5 })), method: 'keyword' });
+    }
+
+    // Vector similarity search
+    const embeddingStr = `[${queryEmbedding.join(',')}]`;
+    const results = await db.query(
+      `SELECT dc.id, dc.document_id, dc.content, dc.chunk_index, dc.metadata,
+              rd.name as document_name,
+              1 - (dc.embedding <=> $1::vector) as similarity_score
+       FROM document_chunks dc
+       JOIN rag_documents rd ON dc.document_id = rd.id
+       WHERE dc.knowledge_base_id = $2 AND dc.organization_id = $3
+       AND dc.embedding IS NOT NULL
+       ORDER BY dc.embedding <=> $1::vector
+       LIMIT $4`,
+      [embeddingStr, req.params.kbId, req.user.org_id, top_k || 5]
+    );
+
+    res.json({ chunks: results.rows, method: 'vector' });
+  } catch (err) {
+    console.error('Search error:', err);
+    res.status(500).json({ error: 'Failed to search knowledge base' });
+  }
+});
+
+app.post('/api/rag/knowledge-bases/:kbId/query', authenticate, async (req, res) => {
+  const { query, top_k, model_id } = req.body;
+  if (!query) return res.status(400).json({ error: 'Query is required' });
+
+  const startTime = Date.now();
+  try {
+    // Generate query embedding
+    const queryEmbedding = await generateEmbedding(query);
+
+    let chunks = [];
+    if (queryEmbedding) {
+      const embeddingStr = `[${queryEmbedding.join(',')}]`;
+      const results = await db.query(
+        `SELECT dc.id, dc.document_id, dc.content, dc.chunk_index, dc.metadata,
+                rd.name as document_name,
+                1 - (dc.embedding <=> $1::vector) as similarity_score
+         FROM document_chunks dc
+         JOIN rag_documents rd ON dc.document_id = rd.id
+         WHERE dc.knowledge_base_id = $2 AND dc.organization_id = $3
+         AND dc.embedding IS NOT NULL
+         ORDER BY dc.embedding <=> $1::vector
+         LIMIT $4`,
+        [embeddingStr, req.params.kbId, req.user.org_id, top_k || 5]
+      );
+      chunks = results.rows;
+    } else {
+      // Keyword fallback
+      const results = await db.query(
+        `SELECT dc.id, dc.document_id, dc.content, dc.chunk_index, dc.metadata,
+                rd.name as document_name
+         FROM document_chunks dc
+         JOIN rag_documents rd ON dc.document_id = rd.id
+         WHERE dc.knowledge_base_id = $1 AND dc.organization_id = $2
+         AND dc.content ILIKE $3
+         ORDER BY dc.chunk_index LIMIT $4`,
+        [req.params.kbId, req.user.org_id, `%${query}%`, top_k || 5]
+      );
+      chunks = results.rows.map(r => ({ ...r, similarity_score: 0.5 }));
+    }
+
+    // Build context for the LM
+    const context = chunks.map((c, i) => `[Source: ${c.document_name}]\n${c.content}`).join('\n\n---\n\n');
+
+    // Deduct 1 credit (same as inference)
+    const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || 'eshir010@ucr.edu').split(',').map(e => e.trim().toLowerCase());
+    const isAdmin = ADMIN_EMAILS.includes(req.user.email?.toLowerCase());
+    if (!isAdmin) {
+      const orgResult = await db.query('SELECT credits_balance, subscription_status FROM organizations WHERE id = $1', [req.user.org_id]);
+      const org = orgResult.rows[0];
+      if (org && org.subscription_status !== 'active' && (org.credits_balance ?? 100) > 0) {
+        await db.query('UPDATE organizations SET credits_balance = GREATEST(credits_balance - 1, 0) WHERE id = $1', [req.user.org_id]);
+        await db.query('INSERT INTO credit_ledger (organization_id, amount, reason) VALUES ($1, $2, $3)', [req.user.org_id, -1, 'RAG query']);
+      }
+    }
+
+    const latencyMs = Date.now() - startTime;
+
+    // Log query
+    await db.query(
+      `INSERT INTO rag_queries (knowledge_base_id, organization_id, query_text, retrieved_chunks, model_used, tier_used, latency_ms, success)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [req.params.kbId, req.user.org_id, query, chunks.length, model_id || 'unknown', 2, latencyMs, true]
+    ).catch(() => {});
+
+    res.json({
+      query,
+      context,
+      retrieved_chunks: chunks,
+      latency_ms: latencyMs,
+      tier_used: 2,
+      prompt_template: `You are a helpful assistant. Answer the user's question based ONLY on the following context from their documents. If the context doesn't contain enough information to answer, say so.\n\nContext:\n${context}\n\nQuestion: ${query}\n\nAnswer:`
+    });
+  } catch (err) {
+    console.error('RAG query error:', err);
+    res.status(500).json({ error: 'Failed to process RAG query' });
+  }
+});
+
+// --- Tier 3: Sync Endpoints ---
+
+app.post('/api/rag/knowledge-bases/:kbId/sync', authenticate, async (req, res) => {
+  const { device_id } = req.body;
+  if (!device_id) return res.status(400).json({ error: 'device_id is required' });
+
+  try {
+    const kb = await db.query('SELECT * FROM knowledge_bases WHERE id = $1 AND organization_id = $2', [req.params.kbId, req.user.org_id]);
+    if (kb.rows.length === 0) return res.status(404).json({ error: 'Knowledge base not found' });
+
+    // Get all chunks with embeddings
+    const chunks = await db.query(
+      `SELECT dc.id, dc.document_id, dc.content, dc.chunk_index, dc.metadata, dc.embedding,
+              rd.name as document_name
+       FROM document_chunks dc
+       JOIN rag_documents rd ON dc.document_id = rd.id
+       WHERE dc.knowledge_base_id = $1 AND dc.embedding IS NOT NULL
+       ORDER BY dc.document_id, dc.chunk_index`,
+      [req.params.kbId]
+    );
+
+    const syncToken = crypto.randomBytes(16).toString('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+    // Upsert sync record
+    await db.query(
+      `INSERT INTO device_rag_sync (device_id, organization_id, knowledge_base_id, sync_token, chunk_count, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (device_id, knowledge_base_id) DO UPDATE SET
+         sync_token = $4, chunk_count = $5, synced_at = NOW(), expires_at = $6`,
+      [device_id, req.user.org_id, req.params.kbId, syncToken, chunks.rows.length, expiresAt]
+    );
+
+    // Build sync package
+    const syncPackage = {
+      metadata: {
+        kb_id: req.params.kbId,
+        kb_name: kb.rows[0].name,
+        chunk_size: kb.rows[0].chunk_size,
+        embedding_dim: 384,
+        total_chunks: chunks.rows.length,
+        synced_at: new Date().toISOString(),
+        expires_at: expiresAt.toISOString(),
+        sync_token: syncToken
+      },
+      chunks: chunks.rows.map(c => ({
+        id: c.id,
+        document_id: c.document_id,
+        document_name: c.document_name,
+        content: c.content,
+        chunk_index: c.chunk_index,
+        embedding: c.embedding ? (typeof c.embedding === 'string' ? JSON.parse(c.embedding) : c.embedding) : null,
+        metadata: c.metadata
+      }))
+    };
+
+    const packageJson = JSON.stringify(syncPackage);
+    const packageSizeMb = (Buffer.byteLength(packageJson) / (1024 * 1024)).toFixed(2);
+
+    res.json({
+      sync_token: syncToken,
+      package_size_mb: parseFloat(packageSizeMb),
+      chunk_count: chunks.rows.length,
+      expires_at: expiresAt.toISOString(),
+      // Include package directly for simplicity (for larger KBs, stream from separate endpoint)
+      sync_package: syncPackage
+    });
+  } catch (err) {
+    console.error('Sync error:', err);
+    res.status(500).json({ error: 'Failed to prepare sync package' });
+  }
+});
+
+// --- Helper Functions ---
+
+// Text chunking
+function chunkText(text, chunkSize = 512, overlap = 128) {
+  if (!text || text.length === 0) return [];
+  const chunks = [];
+  let start = 0;
+  while (start < text.length) {
+    let end = start + chunkSize;
+    // Try to break at sentence boundary
+    if (end < text.length) {
+      const lastPeriod = text.lastIndexOf('.', end);
+      const lastNewline = text.lastIndexOf('\n', end);
+      const breakPoint = Math.max(lastPeriod, lastNewline);
+      if (breakPoint > start + chunkSize / 2) {
+        end = breakPoint + 1;
+      }
+    }
+    chunks.push(text.slice(start, end).trim());
+    start = end - overlap;
+    if (start >= text.length) break;
+  }
+  return chunks.filter(c => c.length > 20); // Skip tiny chunks
+}
+
+// Server-side embedding using @xenova/transformers
+let embeddingPipeline = null;
+async function getEmbeddingPipeline() {
+  if (embeddingPipeline) return embeddingPipeline;
+  try {
+    const { pipeline } = await import('@xenova/transformers');
+    embeddingPipeline = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+    console.log('✅ Embedding model loaded (all-MiniLM-L6-v2)');
+    return embeddingPipeline;
+  } catch (err) {
+    console.error('Failed to load embedding model:', err.message);
+    return null;
+  }
+}
+
+async function generateEmbedding(text) {
+  try {
+    const pipe = await getEmbeddingPipeline();
+    if (!pipe) return null;
+    const output = await pipe(text, { pooling: 'mean', normalize: true });
+    return Array.from(output.data);
+  } catch (err) {
+    console.error('Embedding error:', err.message);
+    return null;
+  }
+}
+
+async function embedKnowledgeBase(kbId) {
+  try {
+    const pipe = await getEmbeddingPipeline();
+    if (!pipe) {
+      console.log('Embedding model not available, skipping embedding for KB:', kbId);
+      return;
+    }
+
+    // Get all un-embedded chunks
+    const chunks = await db.query(
+      'SELECT id, content FROM document_chunks WHERE knowledge_base_id = $1 AND embedding IS NULL ORDER BY chunk_index',
+      [kbId]
+    );
+
+    console.log(`Embedding ${chunks.rows.length} chunks for KB ${kbId}...`);
+    let embedded = 0;
+    for (const chunk of chunks.rows) {
+      try {
+        const embedding = await generateEmbedding(chunk.content);
+        if (embedding) {
+          const embeddingStr = `[${embedding.join(',')}]`;
+          await db.query('UPDATE document_chunks SET embedding = $1::vector WHERE id = $2', [embeddingStr, chunk.id]);
+          embedded++;
+        }
+      } catch (e) {
+        console.error(`Embedding failed for chunk ${chunk.id}:`, e.message);
+      }
+    }
+
+    // Update documents as indexed
+    await db.query(
+      `UPDATE rag_documents SET indexed = true WHERE knowledge_base_id = $1 AND id IN (
+        SELECT DISTINCT document_id FROM document_chunks WHERE knowledge_base_id = $1 AND embedding IS NOT NULL
+      )`,
+      [kbId]
+    );
+
+    console.log(`✅ Embedded ${embedded}/${chunks.rows.length} chunks for KB ${kbId}`);
+  } catch (err) {
+    console.error('Embed KB error:', err);
+  }
+}
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not Found' });
