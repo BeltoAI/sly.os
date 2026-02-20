@@ -117,7 +117,7 @@ export default function App() {
     try {
       const response = await slyos.generate(selectedModel, inputValue);
 
-      const responseText = response?.text || response?.content || '';
+      const responseText = response || '';
 
       setConversations(
         conversations.map((c) =>

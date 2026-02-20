@@ -754,6 +754,155 @@ Goodbye! 👋`}
         </div>
       )}
 
+      {/* ============= RAG SECTION ============= */}
+      <div className="mt-12 space-y-6">
+        <div className="backdrop-blur-xl bg-[#0A0A0A]/80 border border-[rgba(255,77,0,0.25)] rounded-2xl overflow-hidden">
+          <div className="p-8">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#FF4D00] to-[#FF6B35] text-white flex items-center justify-center">
+                <Sparkles className="w-6 h-6" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-[#EDEDED]">Local RAG — Knowledge Base</h2>
+                <p className="text-sm text-[#888888]">Build intelligent retrieval-augmented generation with your documents</p>
+              </div>
+            </div>
+
+            <div className="space-y-6 mt-6">
+              <div className="p-4 bg-[rgba(74,222,128,0.05)] border border-[rgba(74,222,128,0.15)] rounded-xl">
+                <p className="text-sm font-semibold text-[#EDEDED] mb-2">Workflow Overview:</p>
+                <div className="space-y-2">
+                  {[
+                    { num: '1', text: 'Select your model' },
+                    { num: '2', text: 'Upload documents to Knowledge Base (dashboard or API)' },
+                    { num: '3', text: 'Configure: system prompt, temperature, top-K' },
+                    { num: '4', text: 'Get SDK snippets or use the dashboard chat' },
+                  ].map((step) => (
+                    <p key={step.num} className="text-sm text-[#888888] flex items-center gap-2">
+                      <span className="flex-shrink-0 w-5 h-5 rounded-full bg-[#FF4D00]/20 text-[#FF4D00] flex items-center justify-center text-xs font-bold">
+                        {step.num}
+                      </span>
+                      {step.text}
+                    </p>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-[#EDEDED] mb-3">Tier 2: Cloud-indexed retrieval + local inference</h3>
+                  <div className="bg-[#050505] border border-[rgba(255,77,0,0.15)] rounded-xl p-4 font-mono text-xs text-[#4ade80] overflow-x-auto mb-3 whitespace-pre-wrap break-words leading-relaxed">
+{`// Tier 2: Cloud-indexed retrieval + local inference
+const result = await sdk.ragQuery({
+  knowledgeBaseId: 'YOUR_KB_ID',
+  query: 'What does the warranty cover?',
+  modelId: '${modelId}',
+  topK: 5,
+});
+console.log(result.generatedResponse);
+console.log(result.retrievedChunks);`}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-2 text-[#FF4D00] hover:bg-[#FF4D00]/10"
+                    onClick={() => copyCode(`// Tier 2: Cloud-indexed retrieval + local inference
+const result = await sdk.ragQuery({
+  knowledgeBaseId: 'YOUR_KB_ID',
+  query: 'What does the warranty cover?',
+  modelId: '${modelId}',
+  topK: 5,
+});
+console.log(result.generatedResponse);
+console.log(result.retrievedChunks);`, 50)}
+                  >
+                    {copiedStep === 50 ? (
+                      <>
+                        <Check className="w-4 h-4" /> Copied!
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-4 h-4" /> Copy Code
+                      </>
+                    )}
+                  </Button>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold text-[#EDEDED] mb-3">Tier 1: Fully local, zero network</h3>
+                  <div className="bg-[#050505] border border-[rgba(255,77,0,0.15)] rounded-xl p-4 font-mono text-xs text-[#4ade80] overflow-x-auto mb-3 whitespace-pre-wrap break-words leading-relaxed">
+{`// Tier 1: Fully local, zero network
+const result = await sdk.ragQueryLocal({
+  knowledgeBaseId: 'local',
+  query: 'Summarize this document',
+  modelId: '${modelId}',
+  documents: [{ content: 'Your document text...', name: 'report.pdf' }],
+});`}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-2 text-[#FF4D00] hover:bg-[#FF4D00]/10"
+                    onClick={() => copyCode(`// Tier 1: Fully local, zero network
+const result = await sdk.ragQueryLocal({
+  knowledgeBaseId: 'local',
+  query: 'Summarize this document',
+  modelId: '${modelId}',
+  documents: [{ content: 'Your document text...', name: 'report.pdf' }],
+});`, 51)}
+                  >
+                    {copiedStep === 51 ? (
+                      <>
+                        <Check className="w-4 h-4" /> Copied!
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-4 h-4" /> Copy Code
+                      </>
+                    )}
+                  </Button>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold text-[#EDEDED] mb-3">Tier 3: Offline (sync first, then query anywhere)</h3>
+                  <div className="bg-[#050505] border border-[rgba(255,77,0,0.15)] rounded-xl p-4 font-mono text-xs text-[#4ade80] overflow-x-auto mb-3 whitespace-pre-wrap break-words leading-relaxed">
+{`// Tier 3: Offline (sync first, then query anywhere)
+await sdk.syncKnowledgeBase('YOUR_KB_ID');
+const result = await sdk.ragQueryOffline({
+  knowledgeBaseId: 'YOUR_KB_ID',
+  query: 'What are the key findings?',
+  modelId: '${modelId}',
+});`}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-2 text-[#FF4D00] hover:bg-[#FF4D00]/10"
+                    onClick={() => copyCode(`// Tier 3: Offline (sync first, then query anywhere)
+await sdk.syncKnowledgeBase('YOUR_KB_ID');
+const result = await sdk.ragQueryOffline({
+  knowledgeBaseId: 'YOUR_KB_ID',
+  query: 'What are the key findings?',
+  modelId: '${modelId}',
+});`, 52)}
+                  >
+                    {copiedStep === 52 ? (
+                      <>
+                        <Check className="w-4 h-4" /> Copied!
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-4 h-4" /> Copy Code
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* FAQ Section — always visible */}
       <div className="mt-12 backdrop-blur-xl bg-[rgba(255,77,0,0.03)] border border-[rgba(255,77,0,0.15)] rounded-2xl p-6">
         <h3 className="text-base font-bold text-[#EDEDED] mb-4">Common Questions</h3>

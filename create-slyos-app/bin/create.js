@@ -123,7 +123,7 @@ function createPackageJson(projectName) {
     dependencies: {
       react: '^18.2.0',
       'react-dom': '^18.2.0',
-      '@emilshirokikh/slyos-sdk': '^1.0.0',
+      '@emilshirokikh/slyos-sdk': '^1.3.2',
     },
     devDependencies: {
       vite: '^5.0.0',
