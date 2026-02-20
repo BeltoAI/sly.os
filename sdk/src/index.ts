@@ -1066,6 +1066,8 @@ class SlyOS {
     const startTime = Date.now();
 
     try {
+      if (!this.token) throw new Error('Not authenticated. Call init() first.');
+
       // Step 1: Retrieve relevant chunks from backend
       const searchResponse = await axios.post(
         `${this.apiUrl}/api/rag/knowledge-bases/${options.knowledgeBaseId}/query`,
@@ -1101,7 +1103,7 @@ class SlyOS {
         tierUsed: 2,
       };
     } catch (error: any) {
-      this.emitEvent?.('error', { stage: 'rag_query', error: error.message });
+      this.emitEvent('error', { stage: 'rag_query', error: error.message });
       throw new Error(`RAG query failed: ${error.message}`);
     }
   }
@@ -1168,7 +1170,7 @@ class SlyOS {
         tierUsed: 1,
       };
     } catch (error: any) {
-      this.emitEvent?.('error', { stage: 'rag_local', error: error.message });
+      this.emitEvent('error', { stage: 'rag_local', error: error.message });
       throw new Error(`Local RAG failed: ${error.message}`);
     }
   }
@@ -1235,7 +1237,7 @@ class SlyOS {
         tierUsed: 3,
       };
     } catch (error: any) {
-      this.emitEvent?.('error', { stage: 'rag_offline', error: error.message });
+      this.emitEvent('error', { stage: 'rag_offline', error: error.message });
       throw new Error(`Offline RAG failed: ${error.message}`);
     }
   }
@@ -1246,6 +1248,8 @@ class SlyOS {
    */
   async syncKnowledgeBase(knowledgeBaseId: string, deviceId?: string): Promise<{ chunkCount: number; sizeMb: number; expiresAt: string }> {
     try {
+      if (!this.token) throw new Error('Not authenticated. Call init() first.');
+
       const response = await axios.post(
         `${this.apiUrl}/api/rag/knowledge-bases/${knowledgeBaseId}/sync`,
         { device_id: deviceId || this.deviceId || 'sdk-device' },
@@ -1268,13 +1272,13 @@ class SlyOS {
   // --- RAG Helper Methods ---
 
   private async loadEmbeddingModel(): Promise<void> {
-    this.emitProgress?.('downloading', 0, 'Loading embedding model (all-MiniLM-L6-v2)...');
+    this.emitProgress('downloading', 0, 'Loading embedding model (all-MiniLM-L6-v2)...');
     try {
       const { pipeline } = await import('@huggingface/transformers');
       this.localEmbeddingModel = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
-      this.emitProgress?.('ready', 100, 'Embedding model loaded');
+      this.emitProgress('ready', 100, 'Embedding model loaded');
     } catch (error: any) {
-      this.emitProgress?.('error', 0, `Embedding model failed: ${error.message}`);
+      this.emitProgress('error', 0, `Embedding model failed: ${error.message}`);
       throw error;
     }
   }
@@ -1282,7 +1286,11 @@ class SlyOS {
   private async embedTextLocal(text: string): Promise<number[]> {
     if (!this.localEmbeddingModel) throw new Error('Embedding model not loaded');
     const result = await this.localEmbeddingModel(text, { pooling: 'mean', normalize: true });
-    return Array.from(result.data);
+    // Handle different tensor output formats (v2 vs v3 of transformers)
+    if (result.data) return Array.from(result.data);
+    if (result.tolist) return result.tolist().flat();
+    if (Array.isArray(result)) return result.flat();
+    throw new Error('Unexpected embedding output format');
   }
 
   private cosineSimilarity(a: number[], b: number[]): number {
@@ -1292,11 +1300,13 @@ class SlyOS {
       normA += a[i] * a[i];
       normB += b[i] * b[i];
     }
-    return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+    const denom = Math.sqrt(normA) * Math.sqrt(normB);
+    return denom === 0 ? 0 : dot / denom;
   }
 
   private chunkTextLocal(text: string, chunkSize: number = 512, overlap: number = 128): string[] {
     if (!text || text.length === 0) return [];
+    if (overlap >= chunkSize) overlap = Math.floor(chunkSize * 0.25);
     const chunks: string[] = [];
     let start = 0;
     while (start < text.length) {
