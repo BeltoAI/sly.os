@@ -7,7 +7,7 @@ import {
 } from '@/lib/rag-api';
 import {
   Upload, Trash2, AlertTriangle, X, Check, Send, ChevronDown, ChevronUp, Loader,
-  FileText, File, Zap, Link as LinkIcon, Eye, EyeOff
+  FileText, File, Zap, Link as LinkIcon
 } from 'lucide-react';
 
 type Message = {
@@ -164,7 +164,7 @@ export default function KBDetailPage() {
       setMessages((prev) => [...prev, {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: response.response || 'No response generated',
+        content: response.context || 'No relevant content found',
         sources: response.retrieved_chunks || [],
         promptTemplate: response.prompt_template || '',
       }]);
@@ -375,7 +375,7 @@ export default function KBDetailPage() {
               <div className="space-y-4">
                 {messages.map((msg) => (
                   <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-xs ${
+                    <div className={`max-w-[80%] ${
                       msg.role === 'user'
                         ? 'bg-[#FF4D00]/20 border border-[#FF4D00]/30'
                         : 'bg-[rgba(0,0,0,0.3)] border border-[rgba(255,255,255,0.08)]'

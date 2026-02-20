@@ -234,6 +234,20 @@ db.query(`
   console.log('✅ Device RAG sync table initialized');
 }).catch((err) => { console.error('Device RAG sync table creation failed:', err.message); });
 
+// RAG performance indexes
+db.query(`
+  CREATE INDEX IF NOT EXISTS idx_knowledge_bases_org ON knowledge_bases(organization_id);
+  CREATE INDEX IF NOT EXISTS idx_rag_documents_kb ON rag_documents(knowledge_base_id);
+  CREATE INDEX IF NOT EXISTS idx_rag_documents_org ON rag_documents(organization_id);
+  CREATE INDEX IF NOT EXISTS idx_document_chunks_kb ON document_chunks(knowledge_base_id);
+  CREATE INDEX IF NOT EXISTS idx_document_chunks_doc ON document_chunks(document_id);
+  CREATE INDEX IF NOT EXISTS idx_document_chunks_org ON document_chunks(organization_id);
+  CREATE INDEX IF NOT EXISTS idx_rag_queries_kb ON rag_queries(knowledge_base_id);
+  CREATE INDEX IF NOT EXISTS idx_device_rag_sync_device ON device_rag_sync(device_id);
+`).then(() => {
+  console.log('✅ RAG indexes created');
+}).catch((err) => { console.log('RAG indexes note:', err.message); });
+
 // Device enabled/disabled column
 db.query(`
   ALTER TABLE devices ADD COLUMN IF NOT EXISTS enabled BOOLEAN DEFAULT true;
@@ -1455,11 +1469,13 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 
 app.post('/api/rag/knowledge-bases', authenticate, async (req, res) => {
   const { name, description, tier, chunk_size, chunk_overlap } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
+  const validChunkSize = Math.max(100, Math.min(chunk_size || 512, 10000));
+  const validChunkOverlap = Math.min(chunk_overlap || 128, Math.floor(validChunkSize * 0.5));
   try {
     const result = await db.query(
       `INSERT INTO knowledge_bases (organization_id, name, description, tier, chunk_size, chunk_overlap)
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [req.user.org_id, name, description || '', tier || 2, chunk_size || 512, chunk_overlap || 128]
+      [req.user.org_id, name, description || '', tier || 2, validChunkSize, validChunkOverlap]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -1626,17 +1642,34 @@ app.post('/api/rag/knowledge-bases/:kbId/documents/scrape', authenticate, async 
     const kb = await db.query('SELECT * FROM knowledge_bases WHERE id = $1 AND organization_id = $2', [kbId, req.user.org_id]);
     if (kb.rows.length === 0) return res.status(404).json({ error: 'Knowledge base not found' });
 
-    // Fetch URL content
+    // Validate URL (basic SSRF protection)
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(url);
+      if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+        return res.status(400).json({ error: 'Only HTTP/HTTPS URLs are allowed' });
+      }
+      const hostname = parsedUrl.hostname;
+      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('10.') || hostname.startsWith('192.168.') || hostname.startsWith('169.254.') || hostname === '0.0.0.0') {
+        return res.status(400).json({ error: 'Internal/private URLs are not allowed' });
+      }
+    } catch (e) {
+      return res.status(400).json({ error: 'Invalid URL format' });
+    }
+
+    // Fetch URL content with timeout
     const https = require('https');
     const http = require('http');
     const fetchUrl = (targetUrl) => new Promise((resolve, reject) => {
       const client = targetUrl.startsWith('https') ? https : http;
-      client.get(targetUrl, { headers: { 'User-Agent': 'SlyOS-Bot/1.0' } }, (response) => {
+      const req = client.get(targetUrl, { headers: { 'User-Agent': 'SlyOS-Bot/1.0' }, timeout: 15000 }, (response) => {
         let data = '';
-        response.on('data', chunk => data += chunk);
+        response.on('data', chunk => { data += chunk; if (data.length > 5 * 1024 * 1024) { req.destroy(); reject(new Error('Response too large (>5MB)')); } });
         response.on('end', () => resolve(data));
         response.on('error', reject);
-      }).on('error', reject);
+      });
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out (15s)')); });
     });
 
     const htmlContent = await fetchUrl(url);
@@ -1844,15 +1877,22 @@ app.post('/api/rag/knowledge-bases/:kbId/sync', authenticate, async (req, res) =
     const kb = await db.query('SELECT * FROM knowledge_bases WHERE id = $1 AND organization_id = $2', [req.params.kbId, req.user.org_id]);
     if (kb.rows.length === 0) return res.status(404).json({ error: 'Knowledge base not found' });
 
-    // Get all chunks with embeddings
+    // Get all chunks with embeddings (paginated for safety)
+    const page = parseInt(req.body.page) || 1;
+    const pageSize = Math.min(parseInt(req.body.page_size) || 1000, 5000);
+    const offset = (page - 1) * pageSize;
+    const totalResult = await db.query('SELECT COUNT(*) as count FROM document_chunks WHERE knowledge_base_id = $1 AND embedding IS NOT NULL', [req.params.kbId]);
+    const totalChunks = parseInt(totalResult.rows[0].count);
+
     const chunks = await db.query(
       `SELECT dc.id, dc.document_id, dc.content, dc.chunk_index, dc.metadata, dc.embedding,
               rd.name as document_name
        FROM document_chunks dc
        JOIN rag_documents rd ON dc.document_id = rd.id
        WHERE dc.knowledge_base_id = $1 AND dc.embedding IS NOT NULL
-       ORDER BY dc.document_id, dc.chunk_index`,
-      [req.params.kbId]
+       ORDER BY dc.document_id, dc.chunk_index
+       LIMIT $2 OFFSET $3`,
+      [req.params.kbId, pageSize, offset]
     );
 
     const syncToken = crypto.randomBytes(16).toString('hex');
@@ -1897,6 +1937,10 @@ app.post('/api/rag/knowledge-bases/:kbId/sync', authenticate, async (req, res) =
       sync_token: syncToken,
       package_size_mb: parseFloat(packageSizeMb),
       chunk_count: chunks.rows.length,
+      total_chunks: totalChunks,
+      page,
+      page_size: pageSize,
+      has_more: offset + chunks.rows.length < totalChunks,
       expires_at: expiresAt.toISOString(),
       // Include package directly for simplicity (for larger KBs, stream from separate endpoint)
       sync_package: syncPackage
@@ -1912,6 +1956,7 @@ app.post('/api/rag/knowledge-bases/:kbId/sync', authenticate, async (req, res) =
 // Text chunking
 function chunkText(text, chunkSize = 512, overlap = 128) {
   if (!text || text.length === 0) return [];
+  if (overlap >= chunkSize) overlap = Math.floor(chunkSize * 0.25);
   const chunks = [];
   let start = 0;
   while (start < text.length) {
@@ -1934,17 +1979,23 @@ function chunkText(text, chunkSize = 512, overlap = 128) {
 
 // Server-side embedding using @xenova/transformers
 let embeddingPipeline = null;
+let embeddingPipelinePromise = null;
 async function getEmbeddingPipeline() {
   if (embeddingPipeline) return embeddingPipeline;
-  try {
-    const { pipeline } = await import('@xenova/transformers');
-    embeddingPipeline = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
-    console.log('✅ Embedding model loaded (all-MiniLM-L6-v2)');
-    return embeddingPipeline;
-  } catch (err) {
-    console.error('Failed to load embedding model:', err.message);
-    return null;
-  }
+  if (embeddingPipelinePromise) return embeddingPipelinePromise;
+  embeddingPipelinePromise = (async () => {
+    try {
+      const { pipeline } = await import('@xenova/transformers');
+      embeddingPipeline = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+      console.log('✅ Embedding model loaded (all-MiniLM-L6-v2)');
+      return embeddingPipeline;
+    } catch (err) {
+      console.error('Failed to load embedding model:', err.message);
+      embeddingPipelinePromise = null;
+      return null;
+    }
+  })();
+  return embeddingPipelinePromise;
 }
 
 async function generateEmbedding(text) {
