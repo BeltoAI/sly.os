@@ -62,7 +62,9 @@ export const uploadDocuments = async (kbId: string, files: File[]) => {
   files.forEach(file => formData.append('files', file));
   // Don't set Content-Type manually — browser must auto-set it with the multipart boundary
   const response = await api.post(`/rag/knowledge-bases/${kbId}/documents/upload`, formData, {
-    timeout: 120000,
+    timeout: 300000, // 5 min for large files
+    maxContentLength: 200 * 1024 * 1024,
+    maxBodyLength: 200 * 1024 * 1024,
   });
   return response.data;
 };
