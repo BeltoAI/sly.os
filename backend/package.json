@@ -4,6 +4,7 @@
   "description": "SlyOS Mission Control Backend API",
   "main": "server.js",
   "scripts": {
+    "prestart": "npm install --production 2>/dev/null || true",
     "start": "node server.js"
   },
   "dependencies": {
