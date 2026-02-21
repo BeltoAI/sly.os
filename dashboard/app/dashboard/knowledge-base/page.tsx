@@ -4,24 +4,34 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { getKnowledgeBases, createKnowledgeBase, deleteKnowledgeBase } from '@/lib/rag-api';
 import {
-  Plus, Trash2, AlertTriangle, X, Check, BookOpen, Database, HardDrive, Calendar
+  Plus, Trash2, X, Check, AlertTriangle, BookOpen, FileText, MessageSquare,
+  ArrowRight, Sparkles, ChevronRight
 } from 'lucide-react';
 
 export default function KnowledgeBasePage() {
   const router = useRouter();
   const [kbs, setKbs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [createForm, setCreateForm] = useState({
+
+  // Create flow state
+  const [showCreate, setShowCreate] = useState(false);
+  const [step, setStep] = useState(1);
+  const [creating, setCreating] = useState(false);
+  const [form, setForm] = useState({
     name: '',
     description: '',
-    tier: 1,
-    chunk_size: 512,
-    chunk_overlap: 50,
+    model: 'quantum-3b',
   });
+
+  const models = [
+    { id: 'quantum-1.7b', name: 'Quantum 1.7B', desc: 'Fastest — great for quick Q&A', speed: 'Fast', quality: 'Good' },
+    { id: 'quantum-3b', name: 'Quantum 3B', desc: 'Balanced speed and intelligence', speed: 'Medium', quality: 'Great' },
+    { id: 'quantum-code-3b', name: 'Quantum Code 3B', desc: 'Optimized for code and technical docs', speed: 'Medium', quality: 'Great' },
+    { id: 'quantum-8b', name: 'Quantum 8B', desc: 'Most capable — best for complex analysis', speed: 'Slower', quality: 'Best' },
+  ];
 
   const loadKBs = () => {
     getKnowledgeBases()
@@ -31,59 +41,39 @@ export default function KnowledgeBasePage() {
   };
 
   useEffect(() => { loadKBs(); }, []);
+  useEffect(() => { if (notification) { const t = setTimeout(() => setNotification(null), 4000); return () => clearTimeout(t); } }, [notification]);
 
   const handleCreate = async () => {
-    if (!createForm.name.trim()) {
-      setNotification({ type: 'error', message: 'Knowledge Base name is required' });
-      return;
-    }
-
-    setActionLoading('create');
+    if (!form.name.trim()) return;
+    setCreating(true);
     try {
-      await createKnowledgeBase({
-        name: createForm.name,
-        description: createForm.description,
-        tier: createForm.tier,
-        chunk_size: createForm.chunk_size,
-        chunk_overlap: createForm.chunk_overlap,
+      const kb = await createKnowledgeBase({
+        name: form.name,
+        description: form.description,
+        tier: 2,
+        chunk_size: 512,
+        chunk_overlap: 128,
       });
-      setNotification({ type: 'success', message: 'Knowledge Base created successfully' });
-      setShowCreateModal(false);
-      setCreateForm({ name: '', description: '', tier: 1, chunk_size: 512, chunk_overlap: 50 });
-      loadKBs();
+      // Navigate directly to the new KB with the selected model
+      router.push(`/dashboard/knowledge-base/${kb.id}?model=${form.model}`);
     } catch (err: any) {
-      setNotification({ type: 'error', message: err.response?.data?.error || 'Failed to create Knowledge Base' });
-    } finally {
-      setActionLoading(null);
+      setNotification({ type: 'error', message: err.response?.data?.error || 'Failed to create' });
+      setCreating(false);
     }
   };
 
   const handleDelete = async (kbId: string) => {
-    setActionLoading(kbId);
+    setDeleting(true);
     try {
       await deleteKnowledgeBase(kbId);
       setConfirmDelete(null);
-      setNotification({ type: 'success', message: 'Knowledge Base deleted successfully' });
       loadKBs();
     } catch (err: any) {
-      setNotification({ type: 'error', message: err.response?.data?.error || 'Failed to delete Knowledge Base' });
+      setNotification({ type: 'error', message: err.response?.data?.error || 'Failed to delete' });
     } finally {
-      setActionLoading(null);
+      setDeleting(false);
     }
   };
-
-  const getTierBadge = (tier: number) => {
-    const tiers: Record<number, { label: string; color: string; bg: string }> = {
-      1: { label: 'Tier 1 - Local', color: 'text-[#4ade80]', bg: 'bg-[#4ade80]/15' },
-      2: { label: 'Tier 2 - Cloud', color: 'text-[#3b82f6]', bg: 'bg-[#3b82f6]/15' },
-      3: { label: 'Tier 3 - Hybrid', color: 'text-[#a855f7]', bg: 'bg-[#a855f7]/15' },
-    };
-    const config = tiers[tier] || tiers[1];
-    return <span className={`px-3 py-1 rounded-lg text-[10px] font-semibold ${config.bg} ${config.color}`}>{config.label}</span>;
-  };
-
-  const totalDocs = kbs.reduce((sum, kb) => sum + (kb.document_count || 0), 0);
-  const totalChunks = kbs.reduce((sum, kb) => sum + (kb.chunk_count || 0), 0);
 
   if (loading) return (
     <div className="flex items-center justify-center py-32">
@@ -92,271 +82,196 @@ export default function KnowledgeBasePage() {
   );
 
   return (
-    <div className="animate-fade-in">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-bold text-[#EDEDED]">Knowledge Base</h1>
-          <p className="text-sm text-[#888888] mt-2">
-            {kbs.length} knowledge base{kbs.length !== 1 ? 's' : ''} available
-          </p>
-        </div>
-        <Button
-          className="gap-2"
-          onClick={() => setShowCreateModal(true)}
-        >
-          <Plus className="w-4 h-4" />
-          Create New
-        </Button>
-      </div>
-
+    <div className="animate-fade-in max-w-5xl mx-auto">
       {/* Notification */}
       {notification && (
         <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border mb-6 ${
-          notification.type === 'success'
-            ? 'bg-[#22c55e]/10 border-[#22c55e]/20 text-[#22c55e]'
-            : 'bg-[#ef4444]/10 border-[#ef4444]/20 text-[#ef4444]'
+          notification.type === 'success' ? 'bg-[#22c55e]/10 border-[#22c55e]/20 text-[#22c55e]' : 'bg-[#ef4444]/10 border-[#ef4444]/20 text-[#ef4444]'
         }`}>
-          {notification.type === 'success' ? <Check className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
+          {notification.type === 'success' ? <Check className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
           <p className="text-sm flex-1">{notification.message}</p>
-          <button onClick={() => setNotification(null)} className="opacity-70 hover:opacity-100"><X className="w-4 h-4" /></button>
+          <button onClick={() => setNotification(null)}><X className="w-4 h-4 opacity-70" /></button>
         </div>
       )}
 
-      {/* Stats Row */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="backdrop-blur-xl bg-[#0A0A0A]/80 border border-[rgba(255,255,255,0.08)] rounded-xl p-4">
-          <p className="text-[10px] text-[#555555] uppercase tracking-wider font-semibold mb-1">Total Knowledge Bases</p>
-          <p className="text-2xl font-bold text-[#EDEDED]">{kbs.length}</p>
+      {/* Header */}
+      <div className="text-center mb-10">
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#FF4D00]/10 border border-[#FF4D00]/20 text-[#FF4D00] text-xs font-medium mb-4">
+          <Sparkles className="w-3 h-3" /> Local RAG
         </div>
-        <div className="backdrop-blur-xl bg-[#0A0A0A]/80 border border-[rgba(255,255,255,0.08)] rounded-xl p-4">
-          <div className="flex items-center gap-1.5 mb-1">
-            <HardDrive className="w-3 h-3 text-[#3b82f6]" />
-            <p className="text-[10px] text-[#555555] uppercase tracking-wider font-semibold">Total Documents</p>
-          </div>
-          <p className="text-2xl font-bold text-[#EDEDED]">{totalDocs}</p>
-        </div>
-        <div className="backdrop-blur-xl bg-[#0A0A0A]/80 border border-[rgba(255,255,255,0.08)] rounded-xl p-4">
-          <div className="flex items-center gap-1.5 mb-1">
-            <Database className="w-3 h-3 text-[#a855f7]" />
-            <p className="text-[10px] text-[#555555] uppercase tracking-wider font-semibold">Total Chunks</p>
-          </div>
-          <p className="text-2xl font-bold text-[#EDEDED]">{totalChunks}</p>
-        </div>
+        <h1 className="text-3xl font-bold text-[#EDEDED] mb-2">Knowledge Base</h1>
+        <p className="text-[#888888] text-sm max-w-md mx-auto">
+          Upload your documents, select a model, and chat with your data — all running locally on your device.
+        </p>
       </div>
 
-      {/* Empty State */}
-      {kbs.length === 0 ? (
-        <div className="backdrop-blur-xl bg-[#0A0A0A]/80 border border-[rgba(255,255,255,0.08)] rounded-2xl p-12 text-center">
-          <BookOpen className="w-12 h-12 mx-auto mb-4 text-[#555555]" />
-          <p className="text-[#EDEDED] font-semibold mb-2">No Knowledge Bases Yet</p>
-          <p className="text-sm text-[#888888] mb-6">Create your first Knowledge Base to start managing documents and running RAG queries.</p>
-          <Button onClick={() => setShowCreateModal(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            Create Knowledge Base
-          </Button>
+      {/* Create New — Big Card */}
+      <button
+        onClick={() => { setShowCreate(true); setStep(1); setForm({ name: '', description: '', model: 'quantum-3b' }); }}
+        className="w-full mb-8 p-8 border-2 border-dashed border-[rgba(255,255,255,0.08)] rounded-2xl hover:border-[#FF4D00]/40 hover:bg-[#FF4D00]/5 transition-all duration-300 group"
+      >
+        <div className="flex items-center justify-center gap-3">
+          <div className="w-12 h-12 rounded-xl bg-[#FF4D00]/10 flex items-center justify-center group-hover:bg-[#FF4D00]/20 transition-colors">
+            <Plus className="w-6 h-6 text-[#FF4D00]" />
+          </div>
+          <div className="text-left">
+            <p className="text-[#EDEDED] font-semibold">Create new knowledge base</p>
+            <p className="text-xs text-[#888888]">Select a model, upload sources, start chatting</p>
+          </div>
         </div>
-      ) : (
-        /* KB Cards Grid */
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {kbs.map((kb) => (
-            <div
-              key={kb.id}
-              className="backdrop-blur-xl bg-[#0A0A0A]/80 border border-[rgba(255,255,255,0.08)] rounded-xl p-5 hover:border-[rgba(255,77,0,0.2)] transition-all duration-200 group"
-            >
-              {/* Header */}
-              <div className="flex items-start justify-between mb-3">
+      </button>
+
+      {/* Existing KBs */}
+      {kbs.length > 0 && (
+        <div>
+          <p className="text-xs text-[#555555] uppercase tracking-wider font-semibold mb-4">Your Knowledge Bases</p>
+          <div className="space-y-3">
+            {kbs.map((kb) => (
+              <div
+                key={kb.id}
+                className="group backdrop-blur-xl bg-[#0A0A0A]/80 border border-[rgba(255,255,255,0.08)] rounded-xl p-5 hover:border-[rgba(255,77,0,0.2)] transition-all duration-200 cursor-pointer flex items-center gap-4"
+                onClick={() => router.push(`/dashboard/knowledge-base/${kb.id}`)}
+              >
+                {/* Icon */}
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#FF4D00]/20 to-[#FF4D00]/5 flex items-center justify-center shrink-0">
+                  <BookOpen className="w-5 h-5 text-[#FF4D00]" />
+                </div>
+
+                {/* Info */}
                 <div className="flex-1 min-w-0">
-                  <h3 className="text-[#EDEDED] font-semibold truncate cursor-pointer hover:text-[#FF4D00] transition-colors" onClick={() => router.push(`/dashboard/knowledge-base/${kb.id}`)}>
-                    {kb.name}
-                  </h3>
-                  {kb.description && <p className="text-xs text-[#888888] mt-1 line-clamp-2">{kb.description}</p>}
-                </div>
-              </div>
-
-              {/* Tier Badge */}
-              <div className="mb-4">
-                {getTierBadge(kb.tier || 1)}
-              </div>
-
-              {/* Stats */}
-              <div className="grid grid-cols-2 gap-3 mb-4 p-3 bg-[rgba(0,0,0,0.3)] rounded-lg">
-                <div>
-                  <p className="text-[10px] text-[#555555] uppercase tracking-wider font-semibold">Documents</p>
-                  <p className="text-lg font-bold text-[#EDEDED]">{kb.document_count || 0}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-[#555555] uppercase tracking-wider font-semibold">Chunks</p>
-                  <p className="text-lg font-bold text-[#EDEDED]">{kb.chunk_count || 0}</p>
-                </div>
-              </div>
-
-              {/* Created Date */}
-              <div className="flex items-center gap-1.5 text-xs text-[#666666] mb-4">
-                <Calendar className="w-3 h-3" />
-                {new Date(kb.created_at).toLocaleDateString()}
-              </div>
-
-              {/* Actions */}
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1 text-xs"
-                  onClick={() => router.push(`/dashboard/knowledge-base/${kb.id}`)}
-                >
-                  Open
-                </Button>
-                {confirmDelete === kb.id ? (
-                  <div className="flex gap-1 flex-1">
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      className="flex-1 text-xs"
-                      disabled={actionLoading === kb.id}
-                      onClick={() => handleDelete(kb.id)}
-                    >
-                      Confirm
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="flex-1 text-xs"
-                      onClick={() => setConfirmDelete(null)}
-                    >
-                      Cancel
-                    </Button>
+                  <h3 className="text-[#EDEDED] font-semibold truncate">{kb.name}</h3>
+                  <div className="flex items-center gap-4 mt-1">
+                    <span className="flex items-center gap-1 text-xs text-[#888888]">
+                      <FileText className="w-3 h-3" /> {kb.document_count || 0} sources
+                    </span>
+                    <span className="flex items-center gap-1 text-xs text-[#888888]">
+                      <MessageSquare className="w-3 h-3" /> {kb.total_queries || 0} queries
+                    </span>
+                    <span className="text-xs text-[#555555]">
+                      {new Date(kb.created_at).toLocaleDateString()}
+                    </span>
                   </div>
-                ) : (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-[#555555] hover:text-[#ef4444] hover:bg-[#ef4444]/10"
-                    onClick={() => setConfirmDelete(kb.id)}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
-                )}
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                  {confirmDelete === kb.id ? (
+                    <div className="flex gap-2">
+                      <Button variant="ghost" size="sm" className="text-xs text-[#888888]" onClick={() => setConfirmDelete(null)}>Cancel</Button>
+                      <Button variant="ghost" size="sm" className="text-xs text-[#ef4444]" disabled={deleting} onClick={() => handleDelete(kb.id)}>Delete</Button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setConfirmDelete(kb.id)} className="opacity-0 group-hover:opacity-100 text-[#555555] hover:text-[#ef4444] transition-all p-2">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                  <ChevronRight className="w-4 h-4 text-[#555555] group-hover:text-[#FF4D00] transition-colors" />
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
 
-      {/* Create Modal */}
-      {showCreateModal && (
+      {/* Create Modal — 2 step wizard */}
+      {showCreate && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="backdrop-blur-xl bg-[#0A0A0A]/95 border border-[rgba(255,255,255,0.08)] rounded-2xl w-full max-w-md p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-[#EDEDED]">Create Knowledge Base</h2>
-              <button
-                onClick={() => setShowCreateModal(false)}
-                className="text-[#555555] hover:text-[#EDEDED] transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+          <div className="backdrop-blur-xl bg-[#0A0A0A]/95 border border-[rgba(255,255,255,0.08)] rounded-2xl w-full max-w-lg overflow-hidden">
+            {/* Progress */}
+            <div className="flex border-b border-[rgba(255,255,255,0.06)]">
+              <div className={`flex-1 px-4 py-3 text-xs font-semibold text-center transition-colors ${step >= 1 ? 'text-[#FF4D00] border-b-2 border-[#FF4D00]' : 'text-[#555555]'}`}>
+                1. Name your project
+              </div>
+              <div className={`flex-1 px-4 py-3 text-xs font-semibold text-center transition-colors ${step >= 2 ? 'text-[#FF4D00] border-b-2 border-[#FF4D00]' : 'text-[#555555]'}`}>
+                2. Choose a model
+              </div>
             </div>
 
-            {/* Form */}
-            <div className="space-y-4 mb-6">
-              {/* Name */}
-              <div>
-                <label className="text-xs text-[#888888] uppercase tracking-wider font-semibold mb-2 block">Name *</label>
-                <input
-                  type="text"
-                  placeholder="e.g., Product Documentation"
-                  value={createForm.name}
-                  onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
-                  className="w-full bg-[rgba(0,0,0,0.4)] border border-[rgba(255,255,255,0.08)] rounded-lg px-3 py-2 text-sm text-[#EDEDED] placeholder-[#555555] focus:outline-none focus:border-[#FF4D00]"
-                />
-              </div>
+            <div className="p-6">
+              {/* Step 1: Name */}
+              {step === 1 && (
+                <div>
+                  <h2 className="text-xl font-bold text-[#EDEDED] mb-1">Name your knowledge base</h2>
+                  <p className="text-sm text-[#888888] mb-6">Give it a name so you can find it later.</p>
 
-              {/* Description */}
-              <div>
-                <label className="text-xs text-[#888888] uppercase tracking-wider font-semibold mb-2 block">Description</label>
-                <textarea
-                  placeholder="Optional description"
-                  value={createForm.description}
-                  onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
-                  className="w-full bg-[rgba(0,0,0,0.4)] border border-[rgba(255,255,255,0.08)] rounded-lg px-3 py-2 text-sm text-[#EDEDED] placeholder-[#555555] focus:outline-none focus:border-[#FF4D00] resize-none h-20"
-                />
-              </div>
+                  <input
+                    type="text"
+                    placeholder="e.g., Product docs, Company wiki, Research papers..."
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    autoFocus
+                    className="w-full bg-[rgba(0,0,0,0.4)] border border-[rgba(255,255,255,0.08)] rounded-xl px-4 py-3 text-sm text-[#EDEDED] placeholder-[#555555] focus:outline-none focus:border-[#FF4D00] mb-3"
+                    onKeyDown={(e) => { if (e.key === 'Enter' && form.name.trim()) setStep(2); }}
+                  />
+                  <textarea
+                    placeholder="Description (optional)"
+                    value={form.description}
+                    onChange={(e) => setForm({ ...form, description: e.target.value })}
+                    className="w-full bg-[rgba(0,0,0,0.4)] border border-[rgba(255,255,255,0.08)] rounded-xl px-4 py-3 text-sm text-[#EDEDED] placeholder-[#555555] focus:outline-none focus:border-[#FF4D00] resize-none h-16"
+                  />
 
-              {/* Tier Selection */}
-              <div>
-                <label className="text-xs text-[#888888] uppercase tracking-wider font-semibold mb-3 block">Tier</label>
-                <div className="space-y-2">
-                  {[
-                    { value: 1, label: 'Tier 1 - Local', desc: 'Store documents locally' },
-                    { value: 2, label: 'Tier 2 - Cloud', desc: 'Store in cloud' },
-                    { value: 3, label: 'Tier 3 - Hybrid', desc: 'Local + cloud sync' },
-                  ].map((option) => (
-                    <label key={option.value} className="flex items-center gap-3 p-3 border border-[rgba(255,255,255,0.08)] rounded-lg cursor-pointer hover:bg-[rgba(255,255,255,0.02)] transition-colors">
-                      <input
-                        type="radio"
-                        name="tier"
-                        value={option.value}
-                        checked={createForm.tier === option.value}
-                        onChange={(e) => setCreateForm({ ...createForm, tier: parseInt(e.target.value) })}
-                        className="w-4 h-4"
-                      />
-                      <div>
-                        <p className="text-xs font-semibold text-[#EDEDED]">{option.label}</p>
-                        <p className="text-[10px] text-[#555555]">{option.desc}</p>
-                      </div>
-                    </label>
-                  ))}
+                  <div className="flex gap-3 mt-6">
+                    <Button variant="ghost" className="flex-1" onClick={() => setShowCreate(false)}>Cancel</Button>
+                    <Button className="flex-1 gap-2" disabled={!form.name.trim()} onClick={() => setStep(2)}>
+                      Next <ArrowRight className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {/* Chunk Size */}
-              <div>
-                <label className="text-xs text-[#888888] uppercase tracking-wider font-semibold mb-2 block">Chunk Size: {createForm.chunk_size}</label>
-                <input
-                  type="range"
-                  min="128"
-                  max="2048"
-                  step="128"
-                  value={createForm.chunk_size}
-                  onChange={(e) => setCreateForm({ ...createForm, chunk_size: parseInt(e.target.value) })}
-                  className="w-full h-2 bg-[rgba(0,0,0,0.4)] rounded-lg appearance-none cursor-pointer"
-                />
-                <p className="text-[10px] text-[#555555] mt-1">Optimal: 512-1024 tokens</p>
-              </div>
+              {/* Step 2: Model Selection */}
+              {step === 2 && (
+                <div>
+                  <h2 className="text-xl font-bold text-[#EDEDED] mb-1">Choose your model</h2>
+                  <p className="text-sm text-[#888888] mb-6">This model will run locally on your device for inference.</p>
 
-              {/* Chunk Overlap */}
-              <div>
-                <label className="text-xs text-[#888888] uppercase tracking-wider font-semibold mb-2 block">Chunk Overlap: {createForm.chunk_overlap}</label>
-                <input
-                  type="range"
-                  min="0"
-                  max="200"
-                  step="10"
-                  value={createForm.chunk_overlap}
-                  onChange={(e) => setCreateForm({ ...createForm, chunk_overlap: parseInt(e.target.value) })}
-                  className="w-full h-2 bg-[rgba(0,0,0,0.4)] rounded-lg appearance-none cursor-pointer"
-                />
-                <p className="text-[10px] text-[#555555] mt-1">Tokens: {createForm.chunk_overlap}</p>
-              </div>
-            </div>
+                  <div className="space-y-2 mb-6">
+                    {models.map((m) => (
+                      <label
+                        key={m.id}
+                        className={`flex items-center gap-4 p-4 rounded-xl border cursor-pointer transition-all duration-200 ${
+                          form.model === m.id
+                            ? 'border-[#FF4D00]/50 bg-[#FF4D00]/5'
+                            : 'border-[rgba(255,255,255,0.08)] hover:border-[rgba(255,255,255,0.15)]'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="model"
+                          value={m.id}
+                          checked={form.model === m.id}
+                          onChange={() => setForm({ ...form, model: m.id })}
+                          className="sr-only"
+                        />
+                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                          form.model === m.id ? 'border-[#FF4D00]' : 'border-[#555555]'
+                        }`}>
+                          {form.model === m.id && <div className="w-2 h-2 rounded-full bg-[#FF4D00]" />}
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-semibold text-[#EDEDED]">{m.name}</p>
+                          <p className="text-xs text-[#888888]">{m.desc}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[10px] text-[#555555]">Speed: {m.speed}</p>
+                          <p className="text-[10px] text-[#555555]">Quality: {m.quality}</p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
 
-            {/* Buttons */}
-            <div className="flex gap-3">
-              <Button
-                variant="ghost"
-                className="flex-1"
-                onClick={() => setShowCreateModal(false)}
-                disabled={actionLoading === 'create'}
-              >
-                Cancel
-              </Button>
-              <Button
-                className="flex-1"
-                onClick={handleCreate}
-                disabled={actionLoading === 'create'}
-              >
-                {actionLoading === 'create' ? 'Creating...' : 'Create'}
-              </Button>
+                  <div className="flex gap-3">
+                    <Button variant="ghost" className="flex-1" onClick={() => setStep(1)}>Back</Button>
+                    <Button className="flex-1 gap-2" disabled={creating} onClick={handleCreate}>
+                      {creating ? (
+                        <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Creating...</>
+                      ) : (
+                        <>Create & Add Sources <ArrowRight className="w-4 h-4" /></>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
