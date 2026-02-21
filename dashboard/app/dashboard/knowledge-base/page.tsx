@@ -4,8 +4,8 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { getKnowledgeBases, createKnowledgeBase, deleteKnowledgeBase } from '@/lib/rag-api';
 import {
-  Plus, Trash2, X, Check, AlertTriangle, BookOpen, FileText, MessageSquare,
-  ArrowRight, Sparkles, ChevronRight
+  Plus, Trash2, X, Check, AlertTriangle, BookOpen, FileText,
+  ArrowRight, Sparkles, ChevronRight, Cpu
 } from 'lucide-react';
 
 export default function KnowledgeBasePage() {
@@ -53,6 +53,7 @@ export default function KnowledgeBasePage() {
         tier: 2,
         chunk_size: 512,
         chunk_overlap: 128,
+        model_id: form.model,
       });
       // Navigate directly to the new KB with the selected model
       router.push(`/dashboard/knowledge-base/${kb.id}?model=${form.model}`);
@@ -101,7 +102,7 @@ export default function KnowledgeBasePage() {
         </div>
         <h1 className="text-3xl font-bold text-[#EDEDED] mb-2">Knowledge Base</h1>
         <p className="text-[#888888] text-sm max-w-md mx-auto">
-          Upload your documents, select a model, and chat with your data — all running locally on your device.
+          Upload your documents, select a model, and build a RAG database — all running locally on your device.
         </p>
       </div>
 
@@ -116,7 +117,7 @@ export default function KnowledgeBasePage() {
           </div>
           <div className="text-left">
             <p className="text-[#EDEDED] font-semibold">Create new knowledge base</p>
-            <p className="text-xs text-[#888888]">Select a model, upload sources, start chatting</p>
+            <p className="text-xs text-[#888888]">Select a model, upload sources, configure your deployment</p>
           </div>
         </div>
       </button>
@@ -145,7 +146,7 @@ export default function KnowledgeBasePage() {
                       <FileText className="w-3 h-3" /> {kb.document_count || 0} sources
                     </span>
                     <span className="flex items-center gap-1 text-xs text-[#888888]">
-                      <MessageSquare className="w-3 h-3" /> {kb.total_queries || 0} queries
+                      <Cpu className="w-3 h-3" /> {kb.model_id || 'quantum-3b'}
                     </span>
                     <span className="text-xs text-[#555555]">
                       {new Date(kb.created_at).toLocaleDateString()}
