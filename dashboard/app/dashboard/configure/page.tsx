@@ -111,8 +111,13 @@ export default function ConfigurePage() {
     setUploading(true);
     try {
       const kbId = await ensureKB();
-      await uploadDocuments(kbId, files);
-      setNotification({ type: 'success', message: `${files.length} source(s) added — indexing in progress` });
+      const result = await uploadDocuments(kbId, files);
+      const noTextDocs = result?.documents?.filter((d: any) => d.chunks === 0) || [];
+      if (noTextDocs.length > 0) {
+        setNotification({ type: 'error', message: `${noTextDocs.map((d: any) => d.name).join(', ')}: No text extracted — likely scanned/image-based PDF` });
+      } else {
+        setNotification({ type: 'success', message: `${files.length} source(s) added — ${result?.documents?.reduce((sum: number, d: any) => sum + d.chunks, 0) || 0} chunks created` });
+      }
       setDragActive(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
       const docs = await getDocuments(kbId);

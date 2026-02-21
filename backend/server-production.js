@@ -1666,9 +1666,14 @@ app.post('/api/rag/knowledge-bases/:kbId/documents/upload', authenticate, (req, 
         try {
           const pdfParse = require('pdf-parse');
           const pdfData = await pdfParse(file.buffer);
-          textContent = pdfData.text;
+          textContent = pdfData.text || '';
+          console.log(`PDF parsed: "${file.originalname}" - ${pdfData.numpages} pages, ${textContent.length} chars extracted`);
+          if (textContent.trim().length < 50) {
+            console.warn(`PDF "${file.originalname}" has very little extractable text (${textContent.trim().length} chars). This may be a scanned/image-based PDF.`);
+          }
         } catch (e) {
-          textContent = file.buffer.toString('utf-8'); // fallback
+          console.error(`PDF parse error for "${file.originalname}":`, e.message);
+          textContent = '';
         }
       } else if (ext === 'docx') {
         try {
@@ -1708,7 +1713,8 @@ app.post('/api/rag/knowledge-bases/:kbId/documents/upload', authenticate, (req, 
       // Update document chunk count — mark as indexed immediately (embedding happens in background)
       await db.query('UPDATE rag_documents SET chunk_count = $1, indexed = true WHERE id = $2', [chunkCount, doc.rows[0].id]);
 
-      results.push({ id: doc.rows[0].id, name: file.originalname, file_type: ext, chunks: chunkCount, status: 'indexed' });
+      const warning = (chunkCount === 0) ? 'No text could be extracted. This may be a scanned or image-based PDF.' : null;
+      results.push({ id: doc.rows[0].id, name: file.originalname, file_type: ext, chunks: chunkCount, status: chunkCount > 0 ? 'indexed' : 'no_text', warning });
     }
 
     // Trigger embedding in background (non-blocking)
