@@ -1691,10 +1691,10 @@ app.post('/api/rag/knowledge-bases/:kbId/documents/upload', authenticate, upload
         chunkCount++;
       }
 
-      // Update document chunk count
-      await db.query('UPDATE rag_documents SET chunk_count = $1, indexed = false WHERE id = $2', [chunkCount, doc.rows[0].id]);
+      // Update document chunk count — mark as indexed immediately (embedding happens in background)
+      await db.query('UPDATE rag_documents SET chunk_count = $1, indexed = true WHERE id = $2', [chunkCount, doc.rows[0].id]);
 
-      results.push({ id: doc.rows[0].id, name: file.originalname, file_type: ext, chunks: chunkCount, status: 'chunked' });
+      results.push({ id: doc.rows[0].id, name: file.originalname, file_type: ext, chunks: chunkCount, status: 'indexed' });
     }
 
     // Trigger embedding in background (non-blocking)
@@ -1778,7 +1778,7 @@ app.post('/api/rag/knowledge-bases/:kbId/documents/scrape', authenticate, async 
       );
     }
 
-    await db.query('UPDATE rag_documents SET chunk_count = $1, indexed = false WHERE id = $2', [chunks.length, doc.rows[0].id]);
+    await db.query('UPDATE rag_documents SET chunk_count = $1, indexed = true WHERE id = $2', [chunks.length, doc.rows[0].id]);
 
     // Trigger embedding
     embedKnowledgeBase(kbId).catch(err => console.error('Background embedding error:', err));
