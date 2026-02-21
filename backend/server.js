@@ -1519,12 +1519,23 @@ app.post('/api/rag/knowledge-bases', authenticate, async (req, res) => {
   const validTemp = Math.max(0, Math.min(parseFloat(temperature) || 0.7, 2.0));
   const validTopK = Math.max(1, Math.min(parseInt(top_k) || 5, 20));
   try {
-    const result = await db.query(
-      `INSERT INTO knowledge_bases (organization_id, name, description, tier, chunk_size, chunk_overlap, model_id, system_prompt, temperature, top_k)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-      [req.user.org_id, name, description || '', tier || 2, validChunkSize, validChunkOverlap,
-       model_id || 'quantum-3b', system_prompt || '', validTemp, validTopK]
-    );
+    // Try with new columns first, fallback to base schema
+    let result;
+    try {
+      result = await db.query(
+        `INSERT INTO knowledge_bases (organization_id, name, description, tier, chunk_size, chunk_overlap, model_id, system_prompt, temperature, top_k)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+        [req.user.org_id, name, description || '', tier || 2, validChunkSize, validChunkOverlap,
+         model_id || 'quantum-3b', system_prompt || '', validTemp, validTopK]
+      );
+    } catch (colErr) {
+      // New columns don't exist yet — use base schema
+      result = await db.query(
+        `INSERT INTO knowledge_bases (organization_id, name, description, tier, chunk_size, chunk_overlap)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+        [req.user.org_id, name, description || '', tier || 2, validChunkSize, validChunkOverlap]
+      );
+    }
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('Create KB error:', err);
@@ -1576,17 +1587,27 @@ app.get('/api/rag/knowledge-bases/:kbId', authenticate, async (req, res) => {
 app.put('/api/rag/knowledge-bases/:kbId', authenticate, async (req, res) => {
   const { name, description, chunk_size, chunk_overlap, model_id, system_prompt, temperature, top_k } = req.body;
   try {
-    const result = await db.query(
-      `UPDATE knowledge_bases SET name = COALESCE($1, name), description = COALESCE($2, description),
-       chunk_size = COALESCE($3, chunk_size), chunk_overlap = COALESCE($4, chunk_overlap),
-       model_id = COALESCE($5, model_id), system_prompt = COALESCE($6, system_prompt),
-       temperature = COALESCE($7, temperature), top_k = COALESCE($8, top_k), updated_at = NOW()
-       WHERE id = $9 AND organization_id = $10 RETURNING *`,
-      [name, description, chunk_size, chunk_overlap, model_id, system_prompt,
-       temperature != null ? Math.max(0, Math.min(parseFloat(temperature), 2.0)) : null,
-       top_k != null ? Math.max(1, Math.min(parseInt(top_k), 20)) : null,
-       req.params.kbId, req.user.org_id]
-    );
+    let result;
+    try {
+      result = await db.query(
+        `UPDATE knowledge_bases SET name = COALESCE($1, name), description = COALESCE($2, description),
+         chunk_size = COALESCE($3, chunk_size), chunk_overlap = COALESCE($4, chunk_overlap),
+         model_id = COALESCE($5, model_id), system_prompt = COALESCE($6, system_prompt),
+         temperature = COALESCE($7, temperature), top_k = COALESCE($8, top_k), updated_at = NOW()
+         WHERE id = $9 AND organization_id = $10 RETURNING *`,
+        [name, description, chunk_size, chunk_overlap, model_id, system_prompt,
+         temperature != null ? Math.max(0, Math.min(parseFloat(temperature), 2.0)) : null,
+         top_k != null ? Math.max(1, Math.min(parseInt(top_k), 20)) : null,
+         req.params.kbId, req.user.org_id]
+      );
+    } catch (colErr) {
+      result = await db.query(
+        `UPDATE knowledge_bases SET name = COALESCE($1, name), description = COALESCE($2, description),
+         chunk_size = COALESCE($3, chunk_size), chunk_overlap = COALESCE($4, chunk_overlap), updated_at = NOW()
+         WHERE id = $5 AND organization_id = $6 RETURNING *`,
+        [name, description, chunk_size, chunk_overlap, req.params.kbId, req.user.org_id]
+      );
+    }
     if (result.rows.length === 0) return res.status(404).json({ error: 'Knowledge base not found' });
     res.json(result.rows[0]);
   } catch (err) {
