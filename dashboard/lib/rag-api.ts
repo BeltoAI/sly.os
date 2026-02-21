@@ -60,8 +60,8 @@ export const deleteKnowledgeBase = async (kbId: string) => {
 export const uploadDocuments = async (kbId: string, files: File[]) => {
   const formData = new FormData();
   files.forEach(file => formData.append('files', file));
+  // Don't set Content-Type manually — browser must auto-set it with the multipart boundary
   const response = await api.post(`/rag/knowledge-bases/${kbId}/documents/upload`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 120000,
   });
   return response.data;

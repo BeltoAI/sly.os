@@ -310,15 +310,18 @@ export default function ConfigurePage() {
                             <Loader className="w-3 h-3 animate-spin text-[#888888]" />
                           )}
                           {confirmDeleteDoc === doc.id ? (
-                            <div className="flex gap-1">
-                              <button onClick={() => setConfirmDeleteDoc(null)} className="text-[10px] text-[#555555] hover:text-[#EDEDED] px-1">No</button>
+                            <div className="flex gap-1.5 items-center">
+                              <button onClick={() => setConfirmDeleteDoc(null)}
+                                className="text-xs text-[#888888] hover:text-[#EDEDED] px-2 py-1 rounded bg-[rgba(255,255,255,0.06)] hover:bg-[rgba(255,255,255,0.1)] transition-all">Cancel</button>
                               <button onClick={() => handleDeleteDocument(doc.id)} disabled={deletingDoc}
-                                className="text-[10px] text-[#ef4444] hover:text-[#ff6666] px-1">Yes</button>
+                                className="text-xs text-white bg-[#ef4444] hover:bg-[#dc2626] px-2 py-1 rounded transition-all disabled:opacity-50">
+                                {deletingDoc ? 'Removing...' : 'Remove'}
+                              </button>
                             </div>
                           ) : (
-                            <button onClick={() => setConfirmDeleteDoc(doc.id)}
-                              className="opacity-0 group-hover:opacity-100 text-[#555555] hover:text-[#ef4444] transition-all">
-                              <Trash2 className="w-3.5 h-3.5" />
+                            <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteDoc(doc.id); }}
+                              className="text-[#666666] hover:text-[#ef4444] transition-all p-1 rounded hover:bg-[rgba(239,68,68,0.1)]">
+                              <Trash2 className="w-4 h-4" />
                             </button>
                           )}
                         </div>
