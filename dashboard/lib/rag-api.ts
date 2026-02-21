@@ -60,11 +60,13 @@ export const deleteKnowledgeBase = async (kbId: string) => {
 export const uploadDocuments = async (kbId: string, files: File[]) => {
   const formData = new FormData();
   files.forEach(file => formData.append('files', file));
-  // Don't set Content-Type manually — browser must auto-set it with the multipart boundary
+  // Explicitly delete Content-Type so browser sets multipart/form-data with boundary
   const response = await api.post(`/rag/knowledge-bases/${kbId}/documents/upload`, formData, {
-    timeout: 300000, // 5 min for large files
+    timeout: 300000,
     maxContentLength: 200 * 1024 * 1024,
     maxBodyLength: 200 * 1024 * 1024,
+    headers: { 'Content-Type': undefined },
+    transformRequest: [(data) => data], // Prevent axios from transforming FormData
   });
   return response.data;
 };

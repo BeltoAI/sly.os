@@ -1630,14 +1630,27 @@ app.delete('/api/rag/knowledge-bases/:kbId', authenticate, async (req, res) => {
 
 // --- Document Upload & Management ---
 
-app.post('/api/rag/knowledge-bases/:kbId/documents/upload', authenticate, upload.array('files', 10), async (req, res) => {
+app.post('/api/rag/knowledge-bases/:kbId/documents/upload', authenticate, (req, res, next) => {
+  // Wrap multer in error handler so we get useful error messages
+  const multerUpload = upload.array('files', 10);
+  multerUpload(req, res, (err) => {
+    if (err) {
+      console.error('Multer error:', err.message, err.code);
+      if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'File too large (max 200MB)' });
+      if (err.message?.includes('File type not allowed')) return res.status(400).json({ error: err.message });
+      return res.status(400).json({ error: `Upload processing error: ${err.message}` });
+    }
+    next();
+  });
+}, async (req, res) => {
   const { kbId } = req.params;
   try {
     // Verify KB exists and belongs to org
     const kb = await db.query('SELECT * FROM knowledge_bases WHERE id = $1 AND organization_id = $2', [kbId, req.user.org_id]);
     if (kb.rows.length === 0) return res.status(404).json({ error: 'Knowledge base not found' });
 
-    if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
+    console.log('Upload request - files:', req.files?.length, 'content-type:', req.headers['content-type']);
+    if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'No files uploaded. Make sure Content-Type is multipart/form-data with boundary.' });
 
     const results = [];
     for (const file of req.files) {
