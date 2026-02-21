@@ -776,7 +776,7 @@ Goodbye! 👋`}
                     { num: '1', text: 'Select your model' },
                     { num: '2', text: 'Upload documents to Knowledge Base (dashboard or API)' },
                     { num: '3', text: 'Configure: system prompt, temperature, top-K' },
-                    { num: '4', text: 'Get SDK snippets or use the dashboard chat' },
+                    { num: '4', text: 'Get SDK snippets to query your RAG database' },
                   ].map((step) => (
                     <p key={step.num} className="text-sm text-[#888888] flex items-center gap-2">
                       <span className="flex-shrink-0 w-5 h-5 rounded-full bg-[#FF4D00]/20 text-[#FF4D00] flex items-center justify-center text-xs font-bold">

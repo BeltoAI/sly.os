@@ -35,12 +35,18 @@ export const getKnowledgeBase = async (kbId: string) => {
   return response.data;
 };
 
-export const createKnowledgeBase = async (data: { name: string; description?: string; tier?: number; chunk_size?: number; chunk_overlap?: number }) => {
+export const createKnowledgeBase = async (data: {
+  name: string; description?: string; tier?: number; chunk_size?: number; chunk_overlap?: number;
+  model_id?: string; system_prompt?: string; temperature?: number; top_k?: number;
+}) => {
   const response = await api.post('/rag/knowledge-bases', data);
   return response.data;
 };
 
-export const updateKnowledgeBase = async (kbId: string, data: { name?: string; description?: string; chunk_size?: number; chunk_overlap?: number }) => {
+export const updateKnowledgeBase = async (kbId: string, data: {
+  name?: string; description?: string; chunk_size?: number; chunk_overlap?: number;
+  model_id?: string; system_prompt?: string; temperature?: number; top_k?: number;
+}) => {
   const response = await api.put(`/rag/knowledge-bases/${kbId}`, data);
   return response.data;
 };

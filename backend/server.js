@@ -53,7 +53,8 @@ db.query('SELECT NOW()', (err, res) => {
 // Migrate plaintext passwords to bcrypt
 db.query("SELECT id, password_hash FROM users WHERE password_hash NOT LIKE '$2b$%' AND password_hash NOT LIKE '$2a$%'").then(async (result) => {
   for (const user of result.rows) {
-    const hashed = await bcrypt.hash(user.password_hash || 'admin123', 12);
+    if (!user.password_hash) { console.warn(`⚠️ User ${user.id} has NULL password — skipping migration`); continue; }
+    const hashed = await bcrypt.hash(user.password_hash, 12);
     await db.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hashed, user.id]);
     console.log(`✅ Migrated password for user ${user.id}`);
   }
@@ -150,6 +151,10 @@ db.query(`
     name VARCHAR(255) NOT NULL,
     description TEXT,
     tier INTEGER NOT NULL DEFAULT 2,
+    model_id VARCHAR(255) NOT NULL DEFAULT 'quantum-3b',
+    system_prompt TEXT DEFAULT '',
+    temperature NUMERIC(3,2) DEFAULT 0.7,
+    top_k INTEGER DEFAULT 5,
     chunk_size INTEGER NOT NULL DEFAULT 512,
     chunk_overlap INTEGER NOT NULL DEFAULT 128,
     embedding_model VARCHAR(255) NOT NULL DEFAULT 'all-MiniLM-L6-v2',
@@ -160,6 +165,13 @@ db.query(`
   )
 `).then(() => {
   console.log('✅ Knowledge bases table initialized');
+  // Migration: add new columns if they don't exist
+  return Promise.all([
+    db.query("ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS model_id VARCHAR(255) NOT NULL DEFAULT 'quantum-3b'").catch(() => {}),
+    db.query("ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS system_prompt TEXT DEFAULT ''").catch(() => {}),
+    db.query("ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS temperature NUMERIC(3,2) DEFAULT 0.7").catch(() => {}),
+    db.query("ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS top_k INTEGER DEFAULT 5").catch(() => {}),
+  ]);
 }).catch((err) => { console.error('Knowledge bases table creation failed:', err.message); });
 
 // RAG documents table
@@ -1500,15 +1512,18 @@ try {
 // --- Knowledge Base CRUD ---
 
 app.post('/api/rag/knowledge-bases', authenticate, async (req, res) => {
-  const { name, description, tier, chunk_size, chunk_overlap } = req.body;
+  const { name, description, tier, chunk_size, chunk_overlap, model_id, system_prompt, temperature, top_k } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
   const validChunkSize = Math.max(100, Math.min(chunk_size || 512, 10000));
   const validChunkOverlap = Math.min(chunk_overlap || 128, Math.floor(validChunkSize * 0.5));
+  const validTemp = Math.max(0, Math.min(parseFloat(temperature) || 0.7, 2.0));
+  const validTopK = Math.max(1, Math.min(parseInt(top_k) || 5, 20));
   try {
     const result = await db.query(
-      `INSERT INTO knowledge_bases (organization_id, name, description, tier, chunk_size, chunk_overlap)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [req.user.org_id, name, description || '', tier || 2, validChunkSize, validChunkOverlap]
+      `INSERT INTO knowledge_bases (organization_id, name, description, tier, chunk_size, chunk_overlap, model_id, system_prompt, temperature, top_k)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      [req.user.org_id, name, description || '', tier || 2, validChunkSize, validChunkOverlap,
+       model_id || 'quantum-3b', system_prompt || '', validTemp, validTopK]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -1559,13 +1574,18 @@ app.get('/api/rag/knowledge-bases/:kbId', authenticate, async (req, res) => {
 });
 
 app.put('/api/rag/knowledge-bases/:kbId', authenticate, async (req, res) => {
-  const { name, description, chunk_size, chunk_overlap } = req.body;
+  const { name, description, chunk_size, chunk_overlap, model_id, system_prompt, temperature, top_k } = req.body;
   try {
     const result = await db.query(
       `UPDATE knowledge_bases SET name = COALESCE($1, name), description = COALESCE($2, description),
-       chunk_size = COALESCE($3, chunk_size), chunk_overlap = COALESCE($4, chunk_overlap), updated_at = NOW()
-       WHERE id = $5 AND organization_id = $6 RETURNING *`,
-      [name, description, chunk_size, chunk_overlap, req.params.kbId, req.user.org_id]
+       chunk_size = COALESCE($3, chunk_size), chunk_overlap = COALESCE($4, chunk_overlap),
+       model_id = COALESCE($5, model_id), system_prompt = COALESCE($6, system_prompt),
+       temperature = COALESCE($7, temperature), top_k = COALESCE($8, top_k), updated_at = NOW()
+       WHERE id = $9 AND organization_id = $10 RETURNING *`,
+      [name, description, chunk_size, chunk_overlap, model_id, system_prompt,
+       temperature != null ? Math.max(0, Math.min(parseFloat(temperature), 2.0)) : null,
+       top_k != null ? Math.max(1, Math.min(parseInt(top_k), 20)) : null,
+       req.params.kbId, req.user.org_id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Knowledge base not found' });
     res.json(result.rows[0]);
