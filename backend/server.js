@@ -1476,19 +1476,26 @@ app.post('/api/widget/:orgApiKey/generate', async (req, res) => {
 // RAG (Retrieval Augmented Generation) Endpoints
 // ══════════════════════════════════════════════════════════
 
-const multer = require('multer');
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    const allowedExts = ['txt', 'md', 'csv', 'pdf', 'docx'];
-    const ext = file.originalname.split('.').pop().toLowerCase();
-    if (!allowedExts.includes(ext)) {
+let multer, upload;
+try {
+  multer = require('multer');
+  upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 50 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+      const allowedExts = ['txt', 'md', 'csv', 'pdf', 'docx'];
+      const ext = file.originalname.split('.').pop().toLowerCase();
+      if (!allowedExts.includes(ext)) {
       return cb(new Error('File type not allowed. Allowed: txt, md, csv, pdf, docx'));
     }
     cb(null, true);
   }
 }); // 50MB max, validated file types
+  console.log('✅ RAG dependencies loaded (multer)');
+} catch (e) {
+  console.warn('⚠️ RAG dependencies not installed (multer) — RAG endpoints disabled. Run: npm install multer pdf-parse mammoth');
+  upload = { array: () => (req, res, next) => next() };
+}
 
 // --- Knowledge Base CRUD ---
 
