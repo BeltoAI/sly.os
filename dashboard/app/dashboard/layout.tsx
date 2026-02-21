@@ -4,13 +4,12 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import {
-  LayoutDashboard, Smartphone, Bot, Key, BookOpen, Settings, LogOut, Flame, ChevronRight, CreditCard, Database
+  LayoutDashboard, Smartphone, Bot, Key, BookOpen, Settings, LogOut, Flame, ChevronRight, CreditCard
 } from 'lucide-react';
 
 const navItems = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { href: '/dashboard/devices', label: 'Devices', icon: Smartphone },
-  { href: '/dashboard/knowledge-base', label: 'Knowledge Base', icon: Database },
   { href: '/dashboard/models', label: 'Models', icon: Bot },
   { href: '/dashboard/api-keys', label: 'API Keys', icon: Key },
   { href: '/dashboard/get-started', label: 'Integration', icon: BookOpen },
