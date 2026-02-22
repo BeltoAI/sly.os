@@ -35,6 +35,7 @@ export default function App() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const slyos = new SlyOS({ apiKey: '__API_KEY__' });
+  const knowledgeBaseId = '__KB_ID__' || null;
 
   const currentConversation = conversations.find(
     (c) => c.id === currentConversationId
@@ -115,9 +116,24 @@ export default function App() {
     setIsLoading(true);
 
     try {
-      const response = await slyos.generate(selectedModel, inputValue);
+      let responseText = '';
 
-      const responseText = response || '';
+      if (knowledgeBaseId) {
+        // Use RAG: retrieve relevant chunks from KB, then generate with context
+        const ragResult = await slyos.ragQuery({
+          knowledgeBaseId,
+          query: inputValue,
+          modelId: selectedModel,
+          topK: 5,
+          temperature: 0.7,
+          maxTokens: 200,
+        });
+        responseText = ragResult?.generatedResponse || '';
+      } else {
+        // No KB configured — plain generation
+        const response = await slyos.generate(selectedModel, inputValue);
+        responseText = response || '';
+      }
 
       setConversations(
         conversations.map((c) =>
