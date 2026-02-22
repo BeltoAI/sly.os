@@ -40,6 +40,7 @@ function parseArgs() {
     projectName: 'my-slyos-app',
     apiKey: null,
     model: 'quantum-1.7b',
+    kbId: null,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -48,6 +49,9 @@ function parseArgs() {
       i++;
     } else if (args[i] === '--model' && i + 1 < args.length) {
       parsedArgs.model = args[i + 1];
+      i++;
+    } else if (args[i] === '--kb-id' && i + 1 < args.length) {
+      parsedArgs.kbId = args[i + 1];
       i++;
     } else if (!args[i].startsWith('--')) {
       parsedArgs.projectName = args[i];
@@ -161,6 +165,7 @@ function main() {
   const projectName = args.projectName;
   const apiKey = args.apiKey;
   const model = args.model;
+  const kbId = args.kbId;
 
   const currentDir = process.cwd();
   const projectPath = path.join(currentDir, projectName);
@@ -178,7 +183,8 @@ function main() {
 
   info(`Creating project: ${projectName}`);
   info(`API Key: ${apiKey ? '***' + apiKey.slice(-4) : 'Not provided'}`);
-  info(`Model: ${model}\n`);
+  info(`Model: ${model}`);
+  info(`Knowledge Base: ${kbId || 'None (plain generation)'}\n`);
 
   try {
     // Create project directory
@@ -191,6 +197,7 @@ function main() {
     const replacements = {
       '__API_KEY__': apiKey || '',
       '__MODEL_ID__': model,
+      '__KB_ID__': kbId || '',
     };
     copyDirectory(templateDir, projectPath, replacements);
     success('Template files copied');

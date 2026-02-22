@@ -43,16 +43,19 @@ export default function GetStartedPage() {
   const [widgetTheme, setWidgetTheme] = useState<'dark' | 'light' | 'auto'>('dark');
 
   const apiKey = user.organization?.api_key || 'YOUR_API_KEY';
+  const [kbId, setKbId] = useState('');
 
   useEffect(() => {
     const savedModelId = localStorage.getItem('primaryModel');
     const savedModelName = localStorage.getItem('primaryModelName');
+    const savedKbId = localStorage.getItem('activeKbId');
     if (!savedModelId) {
       router.push('/dashboard/models');
       return;
     }
     setModelId(savedModelId);
     setModelName(savedModelName || savedModelId);
+    if (savedKbId) setKbId(savedKbId);
 
     const u = localStorage.getItem('user');
     if (u) try {
@@ -98,7 +101,7 @@ console.log(response);`;
 <script src="https://cdn.slyos.world/widget.js" async><\/script>`;
 
   // Frontend command
-  const frontendCommand = `npx create-slyos-app my-ai-chat --api-key ${apiKey} --model ${modelId}`;
+  const frontendCommand = `npx create-slyos-app my-ai-chat --api-key ${apiKey} --model ${modelId}${kbId ? ` --kb-id ${kbId}` : ''}`;
 
   // Android Kotlin
   const androidCode = `// build.gradle
@@ -794,7 +797,7 @@ Goodbye! 👋`}
                   <div className="bg-[#050505] border border-[rgba(255,77,0,0.15)] rounded-xl p-4 font-mono text-xs text-[#4ade80] overflow-x-auto mb-3 whitespace-pre-wrap break-words leading-relaxed">
 {`// Tier 2: Cloud-indexed retrieval + local inference
 const result = await sdk.ragQuery({
-  knowledgeBaseId: 'YOUR_KB_ID',
+  knowledgeBaseId: '${kbId || 'YOUR_KB_ID'}',
   query: 'What does the warranty cover?',
   modelId: '${modelId}',
   topK: 5,
@@ -808,7 +811,7 @@ console.log(result.retrievedChunks);`}
                     className="gap-2 text-[#FF4D00] hover:bg-[#FF4D00]/10"
                     onClick={() => copyCode(`// Tier 2: Cloud-indexed retrieval + local inference
 const result = await sdk.ragQuery({
-  knowledgeBaseId: 'YOUR_KB_ID',
+  knowledgeBaseId: '${kbId || 'YOUR_KB_ID'}',
   query: 'What does the warranty cover?',
   modelId: '${modelId}',
   topK: 5,
@@ -867,9 +870,9 @@ const result = await sdk.ragQueryLocal({
                   <h3 className="text-sm font-semibold text-[#EDEDED] mb-3">Tier 3: Offline (sync first, then query anywhere)</h3>
                   <div className="bg-[#050505] border border-[rgba(255,77,0,0.15)] rounded-xl p-4 font-mono text-xs text-[#4ade80] overflow-x-auto mb-3 whitespace-pre-wrap break-words leading-relaxed">
 {`// Tier 3: Offline (sync first, then query anywhere)
-await sdk.syncKnowledgeBase('YOUR_KB_ID');
+await sdk.syncKnowledgeBase('${kbId || 'YOUR_KB_ID'}');
 const result = await sdk.ragQueryOffline({
-  knowledgeBaseId: 'YOUR_KB_ID',
+  knowledgeBaseId: '${kbId || 'YOUR_KB_ID'}',
   query: 'What are the key findings?',
   modelId: '${modelId}',
 });`}
@@ -879,9 +882,9 @@ const result = await sdk.ragQueryOffline({
                     size="sm"
                     className="gap-2 text-[#FF4D00] hover:bg-[#FF4D00]/10"
                     onClick={() => copyCode(`// Tier 3: Offline (sync first, then query anywhere)
-await sdk.syncKnowledgeBase('YOUR_KB_ID');
+await sdk.syncKnowledgeBase('${kbId || 'YOUR_KB_ID'}');
 const result = await sdk.ragQueryOffline({
-  knowledgeBaseId: 'YOUR_KB_ID',
+  knowledgeBaseId: '${kbId || 'YOUR_KB_ID'}',
   query: 'What are the key findings?',
   modelId: '${modelId}',
 });`, 52)}
