@@ -27,6 +27,7 @@ NC='\033[0m' # No Color
 # Default values
 API_KEY=""
 MODEL="quantum-1.7b"
+KB_ID=""
 SLYOS_SERVER="https://slyos-prod.eba-qjz3cmgq.us-east-2.elasticbeanstalk.com"
 PROJECT_NAME="slyos-chatbot"
 
@@ -70,12 +71,17 @@ while [[ $# -gt 0 ]]; do
       MODEL="$2"
       shift 2
       ;;
+    --kb-id)
+      KB_ID="$2"
+      shift 2
+      ;;
     -h|--help)
       echo "Usage: $0 [OPTIONS]"
       echo ""
       echo "Options:"
       echo "  --api-key KEY     Slyos API key (prompted if not provided)"
       echo "  --model MODEL     AI model to use (default: quantum-1.7b)"
+      echo "  --kb-id ID        Knowledge base ID for RAG (optional)"
       echo "  -h, --help        Show this help message"
       exit 0
       ;;
@@ -207,7 +213,8 @@ const colors = {
 const config = {
   apiKey: process.env.SLYOS_API_KEY || 'YOUR_API_KEY',
   model: process.env.SLYOS_MODEL || 'quantum-1.7b',
-  server: process.env.SLYOS_SERVER || 'https://slyos-prod.eba-qjz3cmgq.us-east-2.elasticbeanstalk.com'
+  server: process.env.SLYOS_SERVER || 'https://slyos-prod.eba-qjz3cmgq.us-east-2.elasticbeanstalk.com',
+  kbId: process.env.SLYOS_KB_ID || ''
 };
 
 // Initialize SlyOS SDK
@@ -245,6 +252,11 @@ function printWelcome() {
 
   console.log(`${colors.blue}Model:${colors.reset} ${colors.yellow}${config.model}${colors.reset}`);
   console.log(`${colors.blue}Server:${colors.reset} ${colors.yellow}${config.server}${colors.reset}`);
+  if (config.kbId) {
+    console.log(`${colors.blue}Knowledge Base:${colors.reset} ${colors.green}${config.kbId}${colors.reset} ${colors.green}(RAG enabled)${colors.reset}`);
+  } else {
+    console.log(`${colors.blue}Knowledge Base:${colors.reset} ${colors.dim}None (plain generation)${colors.reset}`);
+  }
   if (config.apiKey === 'YOUR_API_KEY') {
     console.log(`${colors.red}⚠ Using placeholder API key - set SLYOS_API_KEY environment variable${colors.reset}`);
   }
@@ -262,17 +274,41 @@ async function sendMessage(userMessage) {
   try {
     console.log(`${colors.dim}Thinking...${colors.reset}`);
 
-    // Use chatCompletion (OpenAI-compatible) — handles prompt formatting for any model
-    const response = await sdk.chatCompletion(config.model, {
-      messages: [
-        { role: 'system', content: 'You are a helpful AI assistant. Give short, direct answers.' },
-        { role: 'user', content: userMessage }
-      ],
-      max_tokens: 200,
-      temperature: 0.7
-    });
+    let assistantMessage = '';
 
-    let assistantMessage = response?.choices?.[0]?.message?.content || '';
+    if (config.kbId) {
+      // RAG mode: retrieve relevant chunks from knowledge base, then generate with context
+      console.log(`${colors.dim}Searching knowledge base...${colors.reset}`);
+      const ragResult = await sdk.ragQuery({
+        knowledgeBaseId: config.kbId,
+        query: userMessage,
+        modelId: config.model,
+        topK: 5,
+        temperature: 0.7,
+        maxTokens: 300,
+      });
+      assistantMessage = ragResult?.generatedResponse || '';
+
+      // Show source info if chunks were retrieved
+      const chunks = ragResult?.retrievedChunks || [];
+      if (chunks.length > 0) {
+        const sources = [...new Set(chunks.map(c => c.documentName).filter(Boolean))];
+        if (sources.length > 0) {
+          assistantMessage += `\n${colors.dim}[Sources: ${sources.join(', ')}]${colors.reset}`;
+        }
+      }
+    } else {
+      // Plain mode: direct chat completion
+      const response = await sdk.chatCompletion(config.model, {
+        messages: [
+          { role: 'system', content: 'You are a helpful AI assistant. Give short, direct answers.' },
+          { role: 'user', content: userMessage }
+        ],
+        max_tokens: 200,
+        temperature: 0.7
+      });
+      assistantMessage = response?.choices?.[0]?.message?.content || '';
+    }
 
     // Light cleanup — stop at any hallucinated role prefixes
     assistantMessage = assistantMessage
@@ -476,6 +512,7 @@ cat > .env << ENV_SETUP_EOF
 SLYOS_API_KEY=${API_KEY}
 SLYOS_MODEL=${MODEL}
 SLYOS_SERVER=${SLYOS_SERVER}
+SLYOS_KB_ID=${KB_ID}
 ENV_SETUP_EOF
 print_success "Environment configured"
 
@@ -489,6 +526,9 @@ echo -e "${CYAN}Project Details:${NC}"
 echo "  Location: ${YELLOW}$(pwd)${NC}"
 echo "  API Key: ${YELLOW}${API_KEY}${NC}"
 echo "  Model: ${YELLOW}${MODEL}${NC}"
+if [ -n "$KB_ID" ]; then
+  echo "  Knowledge Base: ${GREEN}${KB_ID} (RAG enabled)${NC}"
+fi
 echo ""
 echo -e "${CYAN}Next Steps:${NC}"
 echo "  1. Review the .env file and update your API key if needed"
