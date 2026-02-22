@@ -219,6 +219,7 @@ const config = {
 
 // Initialize SlyOS SDK
 let sdk;
+let authToken = null; // Store auth token for direct RAG API calls
 try {
   sdk = new SlyOS({
     apiKey: config.apiKey,
@@ -227,6 +228,23 @@ try {
 } catch (error) {
   console.error(`${colors.red}Error initializing SDK:${colors.reset}`, error.message);
   process.exit(1);
+}
+
+// Get auth token directly for RAG API calls
+async function getAuthToken() {
+  if (authToken) return authToken;
+  try {
+    const res = await fetch(`${config.server}/api/auth/sdk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiKey: config.apiKey })
+    });
+    const data = await res.json();
+    authToken = data.token;
+    return authToken;
+  } catch (e) {
+    return null;
+  }
 }
 
 // Create readline interface
@@ -275,27 +293,46 @@ async function sendMessage(userMessage) {
     console.log(`${colors.dim}Thinking...${colors.reset}`);
 
     let assistantMessage = '';
+    let sourceInfo = '';
 
     if (config.kbId) {
-      // RAG mode: retrieve relevant chunks from knowledge base, then generate with context
+      // RAG mode: call API directly to get relevant chunks, then generate locally with context
       console.log(`${colors.dim}Searching knowledge base...${colors.reset}`);
-      const ragResult = await sdk.ragQuery({
-        knowledgeBaseId: config.kbId,
-        query: userMessage,
-        modelId: config.model,
-        topK: 5,
-        temperature: 0.7,
-        maxTokens: 300,
-      });
-      assistantMessage = ragResult?.generatedResponse || '';
+      try {
+        const token = await getAuthToken();
+        const ragRes = await fetch(`${config.server}/api/rag/knowledge-bases/${config.kbId}/query`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ query: userMessage, top_k: 5, model_id: config.model })
+        });
+        const ragData = await ragRes.json();
 
-      // Show source info if chunks were retrieved
-      const chunks = ragResult?.retrievedChunks || [];
-      if (chunks.length > 0) {
-        const sources = [...new Set(chunks.map(c => c.documentName).filter(Boolean))];
-        if (sources.length > 0) {
-          assistantMessage += `\n${colors.dim}[Sources: ${sources.join(', ')}]${colors.reset}`;
+        if (ragData.prompt_template) {
+          // Generate response locally using the RAG-augmented prompt
+          const response = await sdk.generate(config.model, ragData.prompt_template, {
+            temperature: 0.7,
+            maxTokens: 300
+          });
+          assistantMessage = response || '';
+
+          // Collect source names
+          const chunks = ragData.retrieved_chunks || [];
+          const sources = [...new Set(chunks.map(c => c.document_name || c.source).filter(Boolean))];
+          if (sources.length > 0) {
+            sourceInfo = `\n${colors.dim}[Sources: ${sources.join(', ')}]${colors.reset}`;
+          }
+        } else {
+          // RAG API returned no context, fall back to plain generation
+          const response = await sdk.generate(config.model, userMessage, { temperature: 0.7, maxTokens: 200 });
+          assistantMessage = response || '';
         }
+      } catch (ragErr) {
+        console.log(`${colors.dim}RAG lookup failed, using plain generation...${colors.reset}`);
+        const response = await sdk.generate(config.model, userMessage, { temperature: 0.7, maxTokens: 200 });
+        assistantMessage = response || '';
       }
     } else {
       // Plain mode: direct chat completion
@@ -319,7 +356,7 @@ async function sendMessage(userMessage) {
       assistantMessage = '(No response generated — try rephrasing your question)';
     }
 
-    console.log(`\n${colors.bright}${colors.magenta}AI:${colors.reset} ${assistantMessage}\n`);
+    console.log(`\n${colors.bright}${colors.magenta}AI:${colors.reset} ${assistantMessage}${sourceInfo}\n`);
   } catch (error) {
     console.error(`\n${colors.red}Error:${colors.reset} ${error.message}\n`);
   }
