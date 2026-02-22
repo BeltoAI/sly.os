@@ -70,9 +70,31 @@ export default function GetStartedPage() {
   };
 
   // Terminal Chatbot
-  const oneLiner = `curl -sL https://raw.githubusercontent.com/BeltoAI/sly.os/main/sdk/create-chatbot.sh | bash -s -- --api-key ${apiKey} --model ${modelId}`;
+  const oneLiner = `curl -sL https://raw.githubusercontent.com/BeltoAI/sly.os/main/sdk/create-chatbot.sh | bash -s -- --api-key ${apiKey} --model ${modelId}${kbId ? ` --kb-id ${kbId}` : ''}`;
   const installCode = `npm install @emilshirokikh/slyos-sdk`;
-  const appCode = `import SlyOS from '@emilshirokikh/slyos-sdk';
+  const appCode = kbId
+    ? `import SlyOS from '@emilshirokikh/slyos-sdk';
+
+const sdk = new SlyOS({
+  apiKey: '${apiKey}',
+  onProgress: (e) => console.log(\`[\${e.progress}%] \${e.message}\`)
+});
+
+await sdk.initialize();
+await sdk.loadModel('${modelId}');
+
+// RAG query — retrieves relevant chunks from your knowledge base, then generates locally
+const result = await sdk.ragQuery({
+  knowledgeBaseId: '${kbId}',
+  query: 'What does the documentation say about...?',
+  modelId: '${modelId}',
+  topK: 5,
+  temperature: 0.7,
+  maxTokens: 300
+});
+console.log(result.generatedResponse);
+console.log('Sources:', result.retrievedChunks.map(c => c.documentName));`
+    : `import SlyOS from '@emilshirokikh/slyos-sdk';
 
 const sdk = new SlyOS({
   apiKey: '${apiKey}',
@@ -90,7 +112,7 @@ console.log(response);`;
 <script>
   window.SlyOSWidget = {
     apiKey: '${apiKey}',
-    model: '${modelId}',
+    model: '${modelId}',${kbId ? `\n    knowledgeBaseId: '${kbId}',` : ''}
     position: '${widgetPosition}',
     primaryColor: '${widgetColor}',
     title: '${widgetTitle}',
@@ -120,8 +142,17 @@ class MainActivity : AppCompatActivity() {
     val sdk = SlyOS(SlyOSConfig(apiKey = "${apiKey}"))
     val profile = sdk.initialize()
     sdk.loadModel("${modelId}")
+${kbId ? `
+    // RAG query with your knowledge base
+    val result = sdk.ragQuery(
+      knowledgeBaseId = "${kbId}",
+      query = "What does the documentation say about...?",
+      modelId = "${modelId}",
+      topK = 5
+    )
+    Log.d("SlyOS", result.generatedResponse)` : `
     val response = sdk.generate("${modelId}", "Hello!")
-    Log.d("SlyOS", response)
+    Log.d("SlyOS", response)`}
   }
 }`;
 
@@ -144,8 +175,17 @@ class ChatViewController: UIViewController {
     let sdk = SlyOS(config: .init(apiKey: "${apiKey}"))
     let profile = try await sdk.initialize()
     try await sdk.loadModel("${modelId}")
+${kbId ? `
+    // RAG query with your knowledge base
+    let result = try await sdk.ragQuery(
+      knowledgeBaseId: "${kbId}",
+      query: "What does the documentation say about...?",
+      modelId: "${modelId}",
+      topK: 5
+    )
+    print(result.generatedResponse)` : `
     let response = try await sdk.generate("${modelId}", prompt: "Hello!")
-    print(response)
+    print(response)`}
   }
 }`;
 
