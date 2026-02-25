@@ -323,10 +323,13 @@ async function sendMessage(userMessage) {
         const ragData = await ragRes.json();
         const chunks = ragData.retrieved_chunks || [];
 
-        if (chunks.length > 0) {
-          // Truncate context to ~2000 chars to leave room for generation within 2048 token window
-          let context = chunks.map(c => c.content).join('\n\n');
-          if (context.length > 2000) context = context.substring(0, 2000) + '...';
+        // Check if chunks are relevant enough (similarity > 0.3)
+        const goodChunks = chunks.filter(c => (c.similarity_score || 0) > 0.3);
+
+        if (goodChunks.length > 0) {
+          // Truncate context to ~1500 chars to leave room for generation within 2048 token window
+          let context = goodChunks.map(c => c.content).join('\n\n');
+          if (context.length > 1500) context = context.substring(0, 1500) + '...';
 
           // Use chatCompletion with structured messages for better output quality
           const response = await sdk.chatCompletion(config.model, {
@@ -340,7 +343,7 @@ async function sendMessage(userMessage) {
           assistantMessage = response?.choices?.[0]?.message?.content || '';
 
           // Collect source names
-          const sources = [...new Set(chunks.map(c => c.document_name || c.source).filter(Boolean))];
+          const sources = [...new Set(goodChunks.map(c => c.document_name || c.source).filter(Boolean))];
           if (sources.length > 0) {
             sourceInfo = `\n${colors.dim}[Sources: ${sources.join(', ')}]${colors.reset}`;
           }
