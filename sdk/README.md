@@ -24,10 +24,10 @@ const sdk = new SlyOS({
 await sdk.initialize();
 
 // 2. Load model (downloads ~200MB once)
-await sdk.loadModel('quantum-360m');
+await sdk.loadModel('quantum-1.7b');
 
 // 3. Generate responses
-const response = await sdk.generate('quantum-360m', 
+const response = await sdk.generate('quantum-1.7b', 
   'What is artificial intelligence?',
   {
     temperature: 0.7,
@@ -74,15 +74,15 @@ await sdk.initialize();
 #### `loadModel(modelId)`
 Downloads and caches AI model locally.
 ```javascript
-await sdk.loadModel('quantum-360m');
+await sdk.loadModel('quantum-1.7b');
 ```
 
 **Parameters:**
 - `modelId` (string): Model identifier
-  - `quantum-135m` - 80MB, fastest
-  - `quantum-360m` - 200MB, recommended
-  - `quantum-1.7b` - 1GB, high quality
-  - `quantum-3b` - 1.7GB, best quality
+  - `quantum-1.7b` - 900MB, recommended
+  - `quantum-3b` - 1.6GB, high quality
+  - `quantum-code-3b` - 1.6GB, code-optimized
+  - `quantum-8b` - 4.2GB, best quality
 
 **Returns:** `Promise<void>`
 
@@ -94,7 +94,7 @@ await sdk.loadModel('quantum-360m');
 #### `generate(modelId, prompt, options?)`
 Generates AI response locally.
 ```javascript
-const response = await sdk.generate('quantum-360m', 
+const response = await sdk.generate('quantum-1.7b', 
   'Tell me about your menu',
   {
     temperature: 0.7,
@@ -137,10 +137,10 @@ import SlyOS from '@emilshirokikh/slyos-sdk';
 
 const sdk = new SlyOS({ apiKey: 'sk_live_...' });
 await sdk.initialize();
-await sdk.loadModel('quantum-360m');
+await sdk.loadModel('quantum-1.7b');
 
 async function chat(userMessage) {
-  return await sdk.generate('quantum-360m', userMessage);
+  return await sdk.generate('quantum-1.7b', userMessage);
 }
 
 const response = await chat('What are your hours?');
@@ -157,7 +157,7 @@ Help with menu, hours, and nutrition. Be friendly and concise.`;
 const userMessage = 'What breakfast items do you have?';
 const fullPrompt = `${systemPrompt}\n\nCustomer: ${userMessage}\nAssistant:`;
 
-const response = await sdk.generate('quantum-360m', fullPrompt, {
+const response = await sdk.generate('quantum-1.7b', fullPrompt, {
   temperature: 0.7,
   maxTokens: 150
 });
@@ -179,7 +179,7 @@ function Chatbot() {
     async function init() {
       const client = new SlyOS({ apiKey: 'sk_live_...' });
       await client.initialize();
-      await client.loadModel('quantum-360m');
+      await client.loadModel('quantum-1.7b');
       setSdk(client);
       setLoading(false);
     }
@@ -187,7 +187,7 @@ function Chatbot() {
   }, []);
 
   async function handleChat(message) {
-    const reply = await sdk.generate('quantum-360m', message);
+    const reply = await sdk.generate('quantum-1.7b', message);
     setResponse(reply);
   }
 
@@ -220,11 +220,11 @@ const sdk = new SlyOS({
 
 ### Multiple Models
 ```javascript
-await sdk.loadModel('quantum-360m');
+await sdk.loadModel('quantum-1.7b');
 await sdk.loadModel('quantum-1.7b');
 
 // Use different models
-const fast = await sdk.generate('quantum-360m', 'Quick question?');
+const fast = await sdk.generate('quantum-1.7b', 'Quick question?');
 const detailed = await sdk.generate('quantum-1.7b', 'Complex question?');
 ```
 
@@ -249,7 +249,7 @@ const detailed = await sdk.generate('quantum-1.7b', 'Complex question?');
 ```javascript
 // Check browser console for errors
 // Ensure 2GB+ RAM available
-// Try smaller model (quantum-135m)
+// Try smaller model (quantum-1.7b)
 ```
 
 ### CORS errors

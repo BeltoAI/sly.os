@@ -1503,7 +1503,7 @@ try {
     }
     cb(null, true);
   }
-}); // 50MB max, validated file types
+}); // 200MB max, validated file types
   console.log('✅ RAG dependencies loaded (multer)');
 } catch (e) {
   console.warn('⚠️ RAG dependencies not installed (multer) — RAG endpoints disabled. Run: npm install multer pdf-parse mammoth');
