@@ -307,36 +307,45 @@ async function sendMessage(userMessage) {
       try {
         const token = await getAuthToken();
         if (!token) throw new Error('Could not authenticate — check your API key');
+        // Only fetch top 2 chunks to fit in small model context window (2048 tokens)
         const ragRes = await fetch(`${config.server}/api/rag/knowledge-bases/${config.kbId}/query`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
           },
-          body: JSON.stringify({ query: userMessage, top_k: 5, model_id: config.model })
+          body: JSON.stringify({ query: userMessage, top_k: 2, model_id: config.model })
         });
         if (!ragRes.ok) {
           const errText = await ragRes.text();
           throw new Error(`RAG query failed: ${ragRes.status} - ${errText}`);
         }
         const ragData = await ragRes.json();
+        const chunks = ragData.retrieved_chunks || [];
 
-        if (ragData.prompt_template) {
-          // Generate response locally using the RAG-augmented prompt
-          const response = await sdk.generate(config.model, ragData.prompt_template, {
-            temperature: 0.7,
-            maxTokens: 300
+        if (chunks.length > 0) {
+          // Truncate context to ~3000 chars to leave room for generation within 2048 token window
+          let context = chunks.map(c => c.content).join('\n\n');
+          if (context.length > 3000) context = context.substring(0, 3000) + '...';
+
+          // Use chatCompletion with structured messages for better output quality
+          const response = await sdk.chatCompletion(config.model, {
+            messages: [
+              { role: 'system', content: `Answer based on the following context. Be concise.\n\nContext:\n${context}` },
+              { role: 'user', content: userMessage }
+            ],
+            max_tokens: 200,
+            temperature: 0.7
           });
-          assistantMessage = response || '';
+          assistantMessage = response?.choices?.[0]?.message?.content || '';
 
           // Collect source names
-          const chunks = ragData.retrieved_chunks || [];
           const sources = [...new Set(chunks.map(c => c.document_name || c.source).filter(Boolean))];
           if (sources.length > 0) {
             sourceInfo = `\n${colors.dim}[Sources: ${sources.join(', ')}]${colors.reset}`;
           }
         } else {
-          // RAG API returned no context, fall back to chat completion
+          // No chunks found, fall back to chat completion
           console.log(`${colors.dim}No RAG context found, using chat completion...${colors.reset}`);
           const response = await sdk.chatCompletion(config.model, {
             messages: [
