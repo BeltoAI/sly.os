@@ -327,15 +327,18 @@ async function sendMessage(userMessage) {
         const goodChunks = chunks.filter(c => (c.similarity_score || 0) > 0.3);
 
         if (goodChunks.length > 0) {
-          // Truncate context to ~1000 chars — small models need minimal prompt overhead
-          let context = goodChunks.map(c => c.content).join('\n');
-          if (context.length > 1000) context = context.substring(0, 1000) + '...';
+          // Clean and truncate context — strip weird chars, cap at 800 chars for small model
+          let context = goodChunks.map(c => c.content).join('\n')
+            .replace(/[^\x20-\x7E\n]/g, ' ')  // Strip non-ASCII/control chars
+            .replace(/\s{3,}/g, ' ')            // Collapse excessive whitespace
+            .trim();
+          if (context.length > 800) context = context.substring(0, 800);
 
-          // Use simple Q&A prompt format — much better for small models than chatCompletion templates
-          const prompt = `${context}\n\nQuestion: ${userMessage}\nAnswer:`;
+          // Put question FIRST so model answers instead of continuing context
+          const prompt = `Answer this question in 2-3 sentences: ${userMessage}\n\nHere is the relevant information:\n${context}\n\nAnswer: `;
           const response = await sdk.generate(config.model, prompt, {
-            temperature: 0.5,
-            maxTokens: 150
+            temperature: 0.3,
+            maxTokens: 120
           });
           assistantMessage = (typeof response === 'string' ? response : response?.text || response?.content || '') || '';
 
@@ -345,46 +348,38 @@ async function sendMessage(userMessage) {
             sourceInfo = `\n${colors.dim}[Sources: ${sources.join(', ')}]${colors.reset}`;
           }
         } else {
-          // No chunks found, fall back to chat completion
-          console.log(`${colors.dim}No RAG context found, using chat completion...${colors.reset}`);
-          const response = await sdk.chatCompletion(config.model, {
-            messages: [
-              { role: 'system', content: 'You are a helpful AI assistant. Give short, direct answers.' },
-              { role: 'user', content: userMessage }
-            ],
-            max_tokens: 200,
-            temperature: 0.7
+          // No relevant chunks — answer conversationally
+          console.log(`${colors.dim}No RAG context found, using plain generation...${colors.reset}`);
+          const prompt = `The user said: "${userMessage}"\nGive a brief, friendly response:\n`;
+          const response = await sdk.generate(config.model, prompt, {
+            temperature: 0.7,
+            maxTokens: 100
           });
-          assistantMessage = response?.choices?.[0]?.message?.content || '';
+          assistantMessage = (typeof response === 'string' ? response : response?.text || response?.content || '') || '';
         }
       } catch (ragErr) {
         console.log(`${colors.yellow}RAG lookup failed: ${ragErr.message}${colors.reset}`);
-        console.log(`${colors.dim}Falling back to plain generation...${colors.reset}`);
-        const response = await sdk.chatCompletion(config.model, {
-          messages: [
-            { role: 'system', content: 'You are a helpful AI assistant. Give short, direct answers.' },
-            { role: 'user', content: userMessage }
-          ],
-          max_tokens: 200,
-          temperature: 0.7
+        const prompt = `The user said: "${userMessage}"\nGive a brief, friendly response:\n`;
+        const response = await sdk.generate(config.model, prompt, {
+          temperature: 0.7,
+          maxTokens: 100
         });
-        assistantMessage = response?.choices?.[0]?.message?.content || '';
+        assistantMessage = (typeof response === 'string' ? response : response?.text || response?.content || '') || '';
       }
     } else {
-      // Plain mode: direct chat completion
-      const response = await sdk.chatCompletion(config.model, {
-        messages: [
-          { role: 'system', content: 'You are a helpful AI assistant. Give short, direct answers.' },
-          { role: 'user', content: userMessage }
-        ],
-        max_tokens: 200,
-        temperature: 0.7
+      // Plain mode: direct generation (no RAG)
+      const prompt = `The user said: "${userMessage}"\nGive a brief, helpful response:\n`;
+      const response = await sdk.generate(config.model, prompt, {
+        temperature: 0.7,
+        maxTokens: 150
       });
-      assistantMessage = response?.choices?.[0]?.message?.content || '';
+      assistantMessage = (typeof response === 'string' ? response : response?.text || response?.content || '') || '';
     }
 
     // Clean up model output artifacts
     assistantMessage = assistantMessage
+      // Strip repeated garbage chars (!!!, ???, etc)
+      .replace(/(.)\1{5,}/g, '')
       // Strip leading role prefixes the model loves to emit
       .replace(/^(assistant|system|answer|response|AI)\s*[:]\s*/i, '')
       // Remove leading partial sentences (fragments before the real answer)
