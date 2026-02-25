@@ -106,6 +106,51 @@ interface OpenAICompatibleClient {
         };
     };
 }
+interface RAGOptions {
+    knowledgeBaseId: string;
+    query: string;
+    topK?: number;
+    modelId: string;
+    temperature?: number;
+    maxTokens?: number;
+}
+interface RAGChunk {
+    id: string;
+    documentId: string;
+    documentName: string;
+    content: string;
+    similarityScore: number;
+    metadata?: Record<string, any>;
+}
+interface RAGResponse {
+    query: string;
+    retrievedChunks: RAGChunk[];
+    generatedResponse: string;
+    context: string;
+    latencyMs: number;
+    tierUsed: 1 | 2 | 3;
+}
+interface OfflineIndex {
+    metadata: {
+        kb_id: string;
+        kb_name: string;
+        chunk_size: number;
+        embedding_dim: number;
+        total_chunks: number;
+        synced_at: string;
+        expires_at: string;
+        sync_token: string;
+    };
+    chunks: Array<{
+        id: string;
+        document_id: string;
+        document_name: string;
+        content: string;
+        chunk_index: number;
+        embedding: number[] | null;
+        metadata: Record<string, any>;
+    }>;
+}
 declare class SlyOS {
     private apiKey;
     private apiUrl;
@@ -153,6 +198,41 @@ declare class SlyOS {
     private fallbackToBedrockCloud;
     private invokeBedrockCloud;
     private mapModelToOpenAI;
+    private localEmbeddingModel;
+    private offlineIndexes;
+    /**
+     * Tier 2: Cloud-indexed RAG with local inference.
+     * Retrieves relevant chunks from server, generates response locally.
+     */
+    ragQuery(options: RAGOptions): Promise<RAGResponse>;
+    /**
+     * Tier 1: Fully local RAG. Zero network calls.
+     * Documents are chunked/embedded on-device, retrieval and generation all local.
+     */
+    ragQueryLocal(options: RAGOptions & {
+        documents: Array<{
+            content: string;
+            name?: string;
+        }>;
+    }): Promise<RAGResponse>;
+    /**
+     * Tier 3: Offline RAG using a synced knowledge base.
+     * First call syncKnowledgeBase(), then use this for offline queries.
+     */
+    ragQueryOffline(options: RAGOptions): Promise<RAGResponse>;
+    /**
+     * Sync a knowledge base for offline use (Tier 3).
+     * Downloads chunks + embeddings from server, stores locally.
+     */
+    syncKnowledgeBase(knowledgeBaseId: string, deviceId?: string): Promise<{
+        chunkCount: number;
+        sizeMb: number;
+        expiresAt: string;
+    }>;
+    private loadEmbeddingModel;
+    private embedTextLocal;
+    private cosineSimilarity;
+    private chunkTextLocal;
     static openaiCompatible(config: {
         apiKey: string;
         apiUrl?: string;
@@ -160,4 +240,4 @@ declare class SlyOS {
     }): OpenAICompatibleClient;
 }
 export default SlyOS;
-export type { SlyOSConfig, SlyOSConfigWithFallback, GenerateOptions, TranscribeOptions, DeviceProfile, ProgressEvent, SlyEvent, QuantizationLevel, ModelCategory, OpenAIMessage, OpenAIChatCompletionRequest, OpenAIChatCompletionResponse, OpenAIChoice, OpenAIUsage, BedrockTextGenerationConfig, BedrockInvokeRequest, BedrockInvokeResponse, BedrockResult, FallbackConfig, FallbackProvider, OpenAICompatibleClient, };
+export type { SlyOSConfig, SlyOSConfigWithFallback, GenerateOptions, TranscribeOptions, DeviceProfile, ProgressEvent, SlyEvent, QuantizationLevel, ModelCategory, OpenAIMessage, OpenAIChatCompletionRequest, OpenAIChatCompletionResponse, OpenAIChoice, OpenAIUsage, BedrockTextGenerationConfig, BedrockInvokeRequest, BedrockInvokeResponse, BedrockResult, FallbackConfig, FallbackProvider, OpenAICompatibleClient, RAGOptions, RAGChunk, RAGResponse, OfflineIndex, };

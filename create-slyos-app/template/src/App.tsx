@@ -33,9 +33,12 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [jwtToken, setJwtToken] = useState<string | null>(null);
 
   const slyos = new SlyOS({ apiKey: '__API_KEY__' });
   const knowledgeBaseId = '__KB_ID__' || null;
+  const serverUrl = '__SERVER_URL__' || 'https://api.slyos.world';
+  const apiKey = '__API_KEY__';
 
   const currentConversation = conversations.find(
     (c) => c.id === currentConversationId
@@ -75,6 +78,74 @@ export default function App() {
       createNewConversation();
     }
   }, []);
+
+  // Authenticate and get JWT token for API calls
+  const authenticateSDK = async (): Promise<string> => {
+    if (jwtToken) {
+      return jwtToken;
+    }
+
+    try {
+      const response = await fetch(`${serverUrl}/api/auth/sdk`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ apiKey }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Authentication failed: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      const token = data.token;
+
+      if (!token) {
+        throw new Error('No token returned from authentication');
+      }
+
+      setJwtToken(token);
+      return token;
+    } catch (error) {
+      console.error('Authentication error:', error);
+      throw error;
+    }
+  };
+
+  // Query the RAG API for knowledge base results
+  const queryKnowledgeBase = async (
+    query: string,
+    token: string
+  ): Promise<{ chunks: Array<{ content: string; score: number }> } | null> => {
+    try {
+      const response = await fetch(
+        `${serverUrl}/api/rag/knowledge-bases/${knowledgeBaseId}/query`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            query,
+            topK: 5,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        console.error(`KB query failed: ${response.statusText}`);
+        return null;
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Knowledge base query error:', error);
+      return null;
+    }
+  };
 
   const sendMessage = async () => {
     if (!inputValue.trim() || !currentConversation || isLoading) return;
@@ -119,16 +190,34 @@ export default function App() {
       let responseText = '';
 
       if (knowledgeBaseId) {
-        // Use RAG: retrieve relevant chunks from KB, then generate with context
-        const ragResult = await slyos.ragQuery({
-          knowledgeBaseId,
-          query: inputValue,
-          modelId: selectedModel,
-          topK: 5,
-          temperature: 0.7,
-          maxTokens: 200,
-        });
-        responseText = ragResult?.generatedResponse || '';
+        // Use RAG: authenticate, retrieve chunks from KB, then generate with context
+        try {
+          const token = await authenticateSDK();
+          const ragResult = await queryKnowledgeBase(inputValue, token);
+
+          if (ragResult && ragResult.chunks && ragResult.chunks.length > 0) {
+            // Build context from retrieved chunks
+            const context = ragResult.chunks
+              .map((chunk) => chunk.content)
+              .join('\n\n');
+
+            const ragPrompt = `Based on the following context, answer the user's question:\n\nContext:\n${context}\n\nUser Question: ${inputValue}\n\nAnswer:`;
+
+            // Use SDK to generate response with context
+            const response = await slyos.generate(selectedModel, ragPrompt);
+            responseText = response || '';
+          } else {
+            // No chunks retrieved, fall back to plain generation
+            console.warn('No chunks retrieved from knowledge base, using plain generation');
+            const response = await slyos.generate(selectedModel, inputValue);
+            responseText = response || '';
+          }
+        } catch (ragError) {
+          // If RAG fails, fall back to plain generation
+          console.error('RAG query failed, falling back to plain generation:', ragError);
+          const response = await slyos.generate(selectedModel, inputValue);
+          responseText = response || '';
+        }
       } else {
         // No KB configured — plain generation
         const response = await slyos.generate(selectedModel, inputValue);
