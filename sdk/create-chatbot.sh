@@ -327,20 +327,17 @@ async function sendMessage(userMessage) {
         const goodChunks = chunks.filter(c => (c.similarity_score || 0) > 0.3);
 
         if (goodChunks.length > 0) {
-          // Truncate context to ~1500 chars to leave room for generation within 2048 token window
-          let context = goodChunks.map(c => c.content).join('\n\n');
-          if (context.length > 1500) context = context.substring(0, 1500) + '...';
+          // Truncate context to ~1000 chars — small models need minimal prompt overhead
+          let context = goodChunks.map(c => c.content).join('\n');
+          if (context.length > 1000) context = context.substring(0, 1000) + '...';
 
-          // Use chatCompletion with structured messages for better output quality
-          const response = await sdk.chatCompletion(config.model, {
-            messages: [
-              { role: 'system', content: `Use the context below to answer the question. Be direct and helpful. Do not repeat the question.\n\nContext:\n${context}` },
-              { role: 'user', content: userMessage }
-            ],
-            max_tokens: 150,
-            temperature: 0.5
+          // Use simple Q&A prompt format — much better for small models than chatCompletion templates
+          const prompt = `${context}\n\nQuestion: ${userMessage}\nAnswer:`;
+          const response = await sdk.generate(config.model, prompt, {
+            temperature: 0.5,
+            maxTokens: 150
           });
-          assistantMessage = response?.choices?.[0]?.message?.content || '';
+          assistantMessage = (typeof response === 'string' ? response : response?.text || response?.content || '') || '';
 
           // Collect source names
           const sources = [...new Set(goodChunks.map(c => c.document_name || c.source).filter(Boolean))];
