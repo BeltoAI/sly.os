@@ -183,7 +183,7 @@ print_success "Package configuration updated"
 # Install Slyos SDK + dotenv
 print_step "Installing dependencies"
 print_info "This may take a moment..."
-npm install @emilshirokikh/slyos-sdk dotenv > /dev/null 2>&1
+npm install @emilshirokikh/slyos-sdk dotenv node-fetch > /dev/null 2>&1
 print_success "Dependencies installed"
 
 # Create the chatbot application
@@ -194,6 +194,7 @@ cat > app.mjs << 'CHATBOT_EOF'
 
 import 'dotenv/config';
 import readline from 'readline';
+import fetch from 'node-fetch';
 import SlyOS from '@emilshirokikh/slyos-sdk';
 
 // Color codes for terminal output
@@ -239,10 +240,15 @@ async function getAuthToken() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ apiKey: config.apiKey })
     });
+    if (!res.ok) {
+      console.log(`${colors.yellow}Auth failed: ${res.status} ${res.statusText}${colors.reset}`);
+      return null;
+    }
     const data = await res.json();
     authToken = data.token;
     return authToken;
   } catch (e) {
+    console.log(`${colors.yellow}Auth error: ${e.message}${colors.reset}`);
     return null;
   }
 }
@@ -300,6 +306,7 @@ async function sendMessage(userMessage) {
       console.log(`${colors.dim}Searching knowledge base...${colors.reset}`);
       try {
         const token = await getAuthToken();
+        if (!token) throw new Error('Could not authenticate — check your API key');
         const ragRes = await fetch(`${config.server}/api/rag/knowledge-bases/${config.kbId}/query`, {
           method: 'POST',
           headers: {
@@ -308,6 +315,10 @@ async function sendMessage(userMessage) {
           },
           body: JSON.stringify({ query: userMessage, top_k: 5, model_id: config.model })
         });
+        if (!ragRes.ok) {
+          const errText = await ragRes.text();
+          throw new Error(`RAG query failed: ${ragRes.status} - ${errText}`);
+        }
         const ragData = await ragRes.json();
 
         if (ragData.prompt_template) {
@@ -325,14 +336,30 @@ async function sendMessage(userMessage) {
             sourceInfo = `\n${colors.dim}[Sources: ${sources.join(', ')}]${colors.reset}`;
           }
         } else {
-          // RAG API returned no context, fall back to plain generation
-          const response = await sdk.generate(config.model, userMessage, { temperature: 0.7, maxTokens: 200 });
-          assistantMessage = response || '';
+          // RAG API returned no context, fall back to chat completion
+          console.log(`${colors.dim}No RAG context found, using chat completion...${colors.reset}`);
+          const response = await sdk.chatCompletion(config.model, {
+            messages: [
+              { role: 'system', content: 'You are a helpful AI assistant. Give short, direct answers.' },
+              { role: 'user', content: userMessage }
+            ],
+            max_tokens: 200,
+            temperature: 0.7
+          });
+          assistantMessage = response?.choices?.[0]?.message?.content || '';
         }
       } catch (ragErr) {
-        console.log(`${colors.dim}RAG lookup failed, using plain generation...${colors.reset}`);
-        const response = await sdk.generate(config.model, userMessage, { temperature: 0.7, maxTokens: 200 });
-        assistantMessage = response || '';
+        console.log(`${colors.yellow}RAG lookup failed: ${ragErr.message}${colors.reset}`);
+        console.log(`${colors.dim}Falling back to plain generation...${colors.reset}`);
+        const response = await sdk.chatCompletion(config.model, {
+          messages: [
+            { role: 'system', content: 'You are a helpful AI assistant. Give short, direct answers.' },
+            { role: 'user', content: userMessage }
+          ],
+          max_tokens: 200,
+          temperature: 0.7
+        });
+        assistantMessage = response?.choices?.[0]?.message?.content || '';
       }
     } else {
       // Plain mode: direct chat completion
