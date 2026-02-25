@@ -324,18 +324,18 @@ async function sendMessage(userMessage) {
         const chunks = ragData.retrieved_chunks || [];
 
         if (chunks.length > 0) {
-          // Truncate context to ~3000 chars to leave room for generation within 2048 token window
+          // Truncate context to ~2000 chars to leave room for generation within 2048 token window
           let context = chunks.map(c => c.content).join('\n\n');
-          if (context.length > 3000) context = context.substring(0, 3000) + '...';
+          if (context.length > 2000) context = context.substring(0, 2000) + '...';
 
           // Use chatCompletion with structured messages for better output quality
           const response = await sdk.chatCompletion(config.model, {
             messages: [
-              { role: 'system', content: `Answer based on the following context. Be concise.\n\nContext:\n${context}` },
+              { role: 'system', content: `Use the context below to answer the question. Be direct and helpful. Do not repeat the question.\n\nContext:\n${context}` },
               { role: 'user', content: userMessage }
             ],
-            max_tokens: 200,
-            temperature: 0.7
+            max_tokens: 150,
+            temperature: 0.5
           });
           assistantMessage = response?.choices?.[0]?.message?.content || '';
 
@@ -383,12 +383,22 @@ async function sendMessage(userMessage) {
       assistantMessage = response?.choices?.[0]?.message?.content || '';
     }
 
-    // Light cleanup — stop at any hallucinated role prefixes
+    // Clean up model output artifacts
     assistantMessage = assistantMessage
-      .split(/\n\s*(User|Human|System):/i)[0]
+      // Strip leading role prefixes the model loves to emit
+      .replace(/^(assistant|system|answer|response|AI)\s*[:]\s*/i, '')
+      // Remove leading partial sentences (fragments before the real answer)
+      .replace(/^[a-z][^.!?]{0,40}\.\s*/i, function(match) {
+        // Only strip if it looks like a fragment (< 50 chars ending in period)
+        return match.length < 50 && !match.includes(' is ') ? '' : match;
+      })
+      // Stop at any hallucinated role prefixes mid-response
+      .split(/\n\s*(User|Human|System|Question):/i)[0]
+      // Strip any remaining leading role prefix after newline
+      .replace(/^\s*(assistant|AI)\s*[:]\s*/im, '')
       .trim();
 
-    if (!assistantMessage) {
+    if (!assistantMessage || assistantMessage.length < 3) {
       assistantMessage = '(No response generated — try rephrasing your question)';
     }
 
