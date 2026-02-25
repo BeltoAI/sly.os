@@ -327,18 +327,18 @@ async function sendMessage(userMessage) {
         const goodChunks = chunks.filter(c => (c.similarity_score || 0) > 0.3);
 
         if (goodChunks.length > 0) {
-          // Clean and truncate context — strip weird chars, cap at 800 chars for small model
+          // Clean and truncate context — strip weird chars, cap at 1200 chars
           let context = goodChunks.map(c => c.content).join('\n')
             .replace(/[^\x20-\x7E\n]/g, ' ')  // Strip non-ASCII/control chars
             .replace(/\s{3,}/g, ' ')            // Collapse excessive whitespace
             .trim();
-          if (context.length > 800) context = context.substring(0, 800);
+          if (context.length > 1200) context = context.substring(0, 1200);
 
-          // Put question FIRST so model answers instead of continuing context
-          const prompt = `Answer this question in 2-3 sentences: ${userMessage}\n\nHere is the relevant information:\n${context}\n\nAnswer: `;
+          // Simple context-then-QA format — this works best with small models
+          const prompt = `${context}\n\nQuestion: ${userMessage}\nAnswer:`;
           const response = await sdk.generate(config.model, prompt, {
-            temperature: 0.3,
-            maxTokens: 120
+            temperature: 0.5,
+            maxTokens: 150
           });
           assistantMessage = (typeof response === 'string' ? response : response?.text || response?.content || '') || '';
 
