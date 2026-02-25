@@ -28,7 +28,7 @@ NC='\033[0m' # No Color
 API_KEY=""
 MODEL="quantum-1.7b"
 KB_ID=""
-SLYOS_SERVER="https://slyos-prod.eba-qjz3cmgq.us-east-2.elasticbeanstalk.com"
+SLYOS_SERVER="https://api.slyos.world"
 PROJECT_NAME="slyos-chatbot"
 
 #################################################################################
@@ -214,7 +214,7 @@ const colors = {
 const config = {
   apiKey: process.env.SLYOS_API_KEY || 'YOUR_API_KEY',
   model: process.env.SLYOS_MODEL || 'quantum-1.7b',
-  server: process.env.SLYOS_SERVER || 'https://slyos-prod.eba-qjz3cmgq.us-east-2.elasticbeanstalk.com',
+  server: process.env.SLYOS_SERVER || 'https://api.slyos.world',
   kbId: process.env.SLYOS_KB_ID || ''
 };
 
@@ -471,7 +471,7 @@ cat > .env.example << 'ENV_EOF'
 # Slyos SDK Configuration
 SLYOS_API_KEY=your_api_key_here
 SLYOS_MODEL=quantum-1.7b
-SLYOS_SERVER=https://slyos-prod.eba-qjz3cmgq.us-east-2.elasticbeanstalk.com
+SLYOS_SERVER=https://api.slyos.world
 ENV_EOF
 print_success "Environment configuration template created"
 
@@ -504,7 +504,7 @@ Set these environment variables before running:
 ```bash
 export SLYOS_API_KEY=your_api_key_here
 export SLYOS_MODEL=quantum-1.7b
-export SLYOS_SERVER=https://slyos-prod.eba-qjz3cmgq.us-east-2.elasticbeanstalk.com
+export SLYOS_SERVER=https://api.slyos.world
 ```
 
 Or create a `.env` file based on `.env.example`.
