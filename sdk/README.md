@@ -37,7 +37,7 @@ const response = await sdk.generate('quantum-1.7b',
 );
 
 console.log(response);
-// AI runs locally - zero cost!
+// AI runs locally - no per-inference charges!
 ```
 
 ---

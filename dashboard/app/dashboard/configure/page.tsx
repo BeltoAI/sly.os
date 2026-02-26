@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import {
   MessageSquare, Thermometer, Hash, Target, MessageCircle, ArrowLeft, ArrowRight, Code,
   Upload, Loader, FileText, File, Globe, Trash2, Check, X, AlertTriangle, BookOpen,
-  Database, ChevronDown, ChevronUp, Copy, Code2, HardDrive
+  Database, ChevronDown, ChevronUp, Copy, Code2, HardDrive, Lock
 } from 'lucide-react';
 import {
   getKnowledgeBases, createKnowledgeBase, getDocuments, uploadDocuments,
@@ -51,6 +51,7 @@ export default function ConfigurePage() {
   const [deletingDoc, setDeletingDoc] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [showRag, setShowRag] = useState(true);
+  const [userPlan, setUserPlan] = useState<string>('pure_edge');
 
   useEffect(() => {
     const savedModelId = localStorage.getItem('primaryModel');
@@ -62,6 +63,9 @@ export default function ConfigurePage() {
     if (savedConfig) {
       try { setConfig(prev => ({ ...prev, ...JSON.parse(savedConfig) })); } catch (e) {}
     }
+    // Load user plan from localStorage (set by billing page)
+    const savedPlan = localStorage.getItem('userPlan');
+    if (savedPlan) setUserPlan(savedPlan);
     // Load or create KB for this model
     loadOrCreateKB(savedModelId);
   }, [router]);
@@ -222,7 +226,22 @@ export default function ConfigurePage() {
       </div>
 
       {/* ═══ RAG Data Upload ═══ */}
-      <div className="backdrop-blur-xl bg-[#0A0A0A]/80 border border-[rgba(255,255,255,0.08)] rounded-2xl overflow-hidden mb-6">
+      <div className={`backdrop-blur-xl bg-[#0A0A0A]/80 border rounded-2xl overflow-hidden mb-6 ${
+        userPlan === 'pure_edge' ? 'border-[rgba(255,77,0,0.3)]' : 'border-[rgba(255,255,255,0.08)]'
+      }`}>
+        {userPlan === 'pure_edge' && (
+          <div className="p-4 bg-[rgba(255,77,0,0.08)] border-b border-[rgba(255,77,0,0.2)] flex items-start gap-3">
+            <Lock className="w-4 h-4 text-[#FF4D00] shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-[#EDEDED] mb-1">Upgrade to Hybrid RAG</p>
+              <p className="text-xs text-[#888888]">RAG knowledge bases are only available on the Hybrid RAG plan. Upgrade now to add documents and use vector search.</p>
+              <a href="/dashboard/billing" className="text-xs text-[#FF4D00] hover:text-[#FF6B35] font-semibold mt-2 inline-block">
+                View Plans & Upgrade
+              </a>
+            </div>
+          </div>
+        )}
+
         <button onClick={() => setShowRag(!showRag)} className="w-full p-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Database className="w-5 h-5 text-[#FF4D00]" />
@@ -237,6 +256,11 @@ export default function ConfigurePage() {
         {showRag && (
           <div className="px-6 pb-6 -mt-2">
             <p className="text-xs text-[#666666] mb-4">Upload documents to give your model context. Files are chunked, embedded, and stored as a vector database for retrieval.</p>
+            {userPlan === 'pure_edge' && (
+              <div className="p-3 bg-[rgba(255,77,0,0.08)] border border-[rgba(255,77,0,0.15)] rounded-lg mb-4">
+                <p className="text-xs text-[#FF4D00]">RAG features require the Hybrid RAG plan. <a href="/dashboard/billing" className="underline hover:no-underline">Upgrade now</a></p>
+              </div>
+            )}
 
             {ragLoading ? (
               <div className="flex items-center justify-center py-8">
@@ -246,13 +270,26 @@ export default function ConfigurePage() {
               <>
                 {/* File Upload Drop Zone */}
                 <div
-                  onDragEnter={handleDrag} onDragLeave={handleDrag} onDragOver={handleDrag} onDrop={handleDrop}
-                  onClick={() => fileInputRef.current?.click()}
-                  className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-200 mb-4 ${
-                    dragActive ? 'border-[#FF4D00] bg-[rgba(255,77,0,0.08)]' : 'border-[rgba(255,255,255,0.1)] hover:border-[#FF4D00]/40 hover:bg-[rgba(255,77,0,0.03)]'
+                  onDragEnter={userPlan === 'hybrid_rag' ? handleDrag : undefined}
+                  onDragLeave={userPlan === 'hybrid_rag' ? handleDrag : undefined}
+                  onDragOver={userPlan === 'hybrid_rag' ? handleDrag : undefined}
+                  onDrop={userPlan === 'hybrid_rag' ? handleDrop : undefined}
+                  onClick={() => userPlan === 'hybrid_rag' && fileInputRef.current?.click()}
+                  className={`border-2 border-dashed rounded-xl p-6 text-center transition-all duration-200 mb-4 ${
+                    userPlan === 'pure_edge'
+                      ? 'border-[rgba(255,77,0,0.2)] bg-[rgba(255,77,0,0.05)] cursor-not-allowed opacity-60'
+                      : dragActive ? 'border-[#FF4D00] bg-[rgba(255,77,0,0.08)] cursor-pointer' : 'border-[rgba(255,255,255,0.1)] hover:border-[#FF4D00]/40 hover:bg-[rgba(255,77,0,0.03)] cursor-pointer'
                   }`}
                 >
-                  {uploading ? (
+                  {userPlan === 'pure_edge' ? (
+                    <>
+                      <Lock className="w-7 h-7 mx-auto mb-2 text-[#FF4D00]" />
+                      <p className="text-sm text-[#EDEDED] font-medium mb-1">
+                        RAG features require Hybrid RAG plan
+                      </p>
+                      <p className="text-xs text-[#888888]">Upgrade to unlock knowledge bases and document upload</p>
+                    </>
+                  ) : uploading ? (
                     <div className="flex items-center justify-center gap-3">
                       <Loader className="w-5 h-5 animate-spin text-[#FF4D00]" />
                       <span className="text-sm text-[#888888]">Uploading and indexing...</span>
@@ -268,7 +305,7 @@ export default function ConfigurePage() {
                   )}
                   <input ref={fileInputRef} type="file" multiple accept=".pdf,.docx,.txt,.md,.csv"
                     onChange={(e) => e.target.files && handleUpload(Array.from(e.target.files))}
-                    className="hidden" disabled={uploading} />
+                    className="hidden" disabled={uploading || userPlan === 'pure_edge'} />
                 </div>
 
                 {/* URL Scraper */}
@@ -276,11 +313,15 @@ export default function ConfigurePage() {
                   <input
                     type="url" placeholder="https://docs.example.com/page"
                     value={scrapeUrl_} onChange={(e) => setScrapeUrl(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleScrapeUrl(); }}
-                    className="flex-1 bg-[#050505] border border-[rgba(255,255,255,0.08)] rounded-lg px-4 py-2.5 text-sm text-[#EDEDED] placeholder-[#555555] focus:outline-none focus:border-[#FF4D00]"
-                    disabled={scrapingUrl}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && userPlan === 'hybrid_rag') handleScrapeUrl(); }}
+                    className={`flex-1 bg-[#050505] border rounded-lg px-4 py-2.5 text-sm focus:outline-none transition-all ${
+                      userPlan === 'pure_edge'
+                        ? 'border-[rgba(255,77,0,0.2)] text-[#888888] placeholder-[#555555]/50 cursor-not-allowed opacity-50'
+                        : 'border-[rgba(255,255,255,0.08)] text-[#EDEDED] placeholder-[#555555] focus:border-[#FF4D00]'
+                    }`}
+                    disabled={scrapingUrl || userPlan === 'pure_edge'}
                   />
-                  <Button onClick={handleScrapeUrl} disabled={scrapingUrl || !scrapeUrl_.trim()} className="gap-2 px-4">
+                  <Button onClick={handleScrapeUrl} disabled={scrapingUrl || !scrapeUrl_.trim() || userPlan === 'pure_edge'} className="gap-2 px-4">
                     {scrapingUrl ? <Loader className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
                     {scrapingUrl ? 'Scraping...' : 'Add URL'}
                   </Button>
