@@ -13,10 +13,10 @@ SlyOS is an open-source SDK that brings AI inference to your users' devices—ph
 SlyOS is a complete on-device AI infrastructure platform that enables developers to:
 
 - **Deploy AI models directly to user devices** instead of relying on cloud APIs
-- **Run unlimited inferences for free** after a one-time model download (~200MB)
+- **Run unlimited inferences** with a Pure Edge ($0.15/device/month) or Hybrid RAG ($0.45/device/month) subscription
 - **Improve privacy** — data never leaves the device
 - **Reduce latency** — sub-second responses with local inference
-- **Save costs** — eliminate per-API-call charges entirely
+- **Save costs** — eliminate per-API-call charges with flat device-based pricing
 
 Perfect for building privacy-first applications, offline-capable services, and cost-effective AI features at scale.
 
@@ -131,6 +131,18 @@ const sdk = new SlyOS({
 // If on-device fails, automatically uses OpenAI
 const response = await sdk.generate('quantum-3b', 'Your prompt here');
 ```
+
+## Pricing
+
+SlyOS offers transparent, device-based pricing with no per-inference charges:
+
+| Plan | Price | Features |
+|------|-------|----------|
+| **30-Day Free Trial** | Free | All features, 100 free inferences |
+| **Pure Edge** | $0.15/device/month | Edge inference, model zoo, device profiling, analytics |
+| **Hybrid RAG** | $0.45/device/month | Everything in Pure Edge + RAG knowledge bases, vector search, document management, URL scraping, offline sync |
+
+All devices are billed equally. Choose Pure Edge for core AI inference or upgrade to Hybrid RAG for advanced knowledge management features.
 
 ## Available Models
 

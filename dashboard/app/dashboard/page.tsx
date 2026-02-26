@@ -243,10 +243,10 @@ export default function DashboardPage() {
 
         <div className="stat-card glass-card p-5 border border-[rgba(255,255,255,0.06)]">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-medium text-[#888888] uppercase tracking-wider">Monthly Cost</span>
+            <span className="text-xs font-medium text-[#888888] uppercase tracking-wider">Plan</span>
             <DollarSign className="w-4 h-4 text-[#3b82f6]" />
           </div>
-          <div className="text-2xl font-bold text-[#EDEDED]">${billing?.monthly_cost || 0}</div>
+          <div className="text-2xl font-bold text-[#EDEDED]">{billing?.plan_type === 'hybrid_rag' ? 'Hybrid RAG' : billing?.plan_type === 'pure_edge' ? 'Pure Edge' : 'Trial'}</div>
           <p className="text-xs text-[#555555] mt-1">{billing?.subscription_status || 'N/A'}</p>
         </div>
       </div>

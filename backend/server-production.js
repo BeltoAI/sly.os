@@ -81,6 +81,7 @@ db.query(`
   ALTER TABLE organizations ADD COLUMN IF NOT EXISTS stripe_subscription_id VARCHAR(255);
   ALTER TABLE organizations ADD COLUMN IF NOT EXISTS credits_balance INTEGER DEFAULT 100;
   ALTER TABLE organizations ADD COLUMN IF NOT EXISTS discount_code VARCHAR(50);
+  ALTER TABLE organizations ADD COLUMN IF NOT EXISTS plan_type VARCHAR(50) DEFAULT 'trial';
 `).catch(() => {});
 
 // Create discount_codes table
@@ -316,12 +317,13 @@ app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), asyn
       case 'checkout.session.completed': {
         const session = event.data.object;
         const orgId = session.metadata.org_id;
+        const planType = session.metadata.plan_type || 'pure_edge';
         if (orgId) {
           await db.query(
-            'UPDATE organizations SET stripe_customer_id = $1, stripe_subscription_id = $2, subscription_status = $3 WHERE id = $4',
-            [session.customer, session.subscription, 'active', orgId]
+            'UPDATE organizations SET stripe_customer_id = $1, stripe_subscription_id = $2, subscription_status = $3, plan_type = $4 WHERE id = $5',
+            [session.customer, session.subscription, 'active', planType, orgId]
           );
-          console.log(`Subscription activated for org ${orgId}`);
+          console.log(`Subscription activated for org ${orgId} with plan ${planType}`);
         }
         break;
       }
@@ -433,30 +435,65 @@ async function checkBillingStatus(req, res, next) {
       return next();
     }
 
-    // First device is always free — skip billing if only 1 enabled device
-    const deviceCount = await db.query(
-      'SELECT COUNT(*) as cnt FROM devices WHERE organization_id = $1 AND enabled = true',
+    const org = await db.query(
+      'SELECT subscription_status, trial_ends_at, plan_type, credits_balance FROM organizations WHERE id = $1',
       [req.user.org_id]
     );
-    const enabledDevices = parseInt(deviceCount.rows[0]?.cnt) || 0;
-    if (enabledDevices <= 1) return next(); // First device is free!
-
-    const org = await db.query('SELECT subscription_status, trial_ends_at FROM organizations WHERE id = $1', [req.user.org_id]);
     if (org.rows.length === 0) return next();
 
-    const { subscription_status, trial_ends_at } = org.rows[0];
+    const { subscription_status, trial_ends_at, plan_type, credits_balance } = org.rows[0];
+    const now = new Date();
+    const trialExpired = trial_ends_at ? new Date(trial_ends_at) <= now : true;
 
-    // Allow if active subscription or trial hasn't expired
-    if (subscription_status === 'active') return next();
-    if (subscription_status === 'trial' && trial_ends_at && new Date(trial_ends_at) > new Date()) return next();
+    // Check if trying to access RAG endpoints
+    const isRagEndpoint = req.path.startsWith('/api/rag/');
 
-    return res.status(402).json({
-      error: 'Subscription required',
-      message: 'You have multiple devices. Please subscribe to continue using SlyOS (first device is always free).',
-      billing_url: '/dashboard/billing'
-    });
+    // RAG endpoints: only allow Hybrid RAG plan and active subscriptions
+    if (isRagEndpoint) {
+      // Allow if Hybrid RAG plan
+      if (plan_type === 'hybrid_rag' && subscription_status === 'active') {
+        return next();
+      }
+      // Allow if still in trial
+      if (subscription_status === 'trial' && !trialExpired) {
+        return next();
+      }
+      // Deny RAG access for Pure Edge or no subscription
+      return res.status(403).json({
+        error: 'RAG features unavailable',
+        message: 'RAG features require the Hybrid RAG plan. Please upgrade your subscription.',
+        billing_url: '/dashboard/billing',
+        required_plan: 'hybrid_rag'
+      });
+    }
+
+    // Non-RAG endpoints: check general subscription status
+    // Trial period: allow all features for 30 days
+    if (subscription_status === 'trial' && !trialExpired) {
+      return next();
+    }
+
+    // Active subscription: allow all features
+    if (subscription_status === 'active') {
+      return next();
+    }
+
+    // No subscription: allow 100 free inferences, then prompt to subscribe
+    if (subscription_status !== 'active' && subscription_status !== 'trial') {
+      const currentCredits = parseInt(credits_balance) || 100;
+      if (currentCredits > 0) {
+        return next(); // Still have free credits
+      }
+      return res.status(402).json({
+        error: 'Free trial expired',
+        message: 'Your free trial has ended. Subscribe to SlyOS to continue using the platform.',
+        billing_url: '/dashboard/billing'
+      });
+    }
+
+    next();
   } catch (err) {
-    // Don't block on billing check errors
+    console.error('Billing check error:', err);
     next();
   }
 }
@@ -1047,10 +1084,10 @@ app.post('/api/telemetry', authenticate, checkBillingStatus, async (req, res) =>
       const bal = updatedOrg.rows[0]?.credits_balance ?? 100;
       const isSub = updatedOrg.rows[0]?.subscription_status === 'active';
       if (!isSub && bal <= 0) {
-        return res.json({ success: true, credits_exhausted: true, message: 'Your 100 free inferences are used up! Subscribe for unlimited inferences at $10/device/month.' });
+        return res.json({ success: true, credits_exhausted: true, message: 'Your 100 free inferences are used up! Subscribe to Pure Edge ($0.15/device/month) or Hybrid RAG ($0.45/device/month) for unlimited.' });
       }
       if (!isSub && bal <= 10) {
-        return res.json({ success: true, credits_low: true, credits_remaining: bal, message: `Only ${bal} free inferences left. Subscribe for unlimited.` });
+        return res.json({ success: true, credits_low: true, credits_remaining: bal, message: `Only ${bal} free inferences left. Subscribe to Pure Edge or Hybrid RAG for unlimited.` });
       }
     }
 
@@ -1065,7 +1102,7 @@ app.post('/api/telemetry', authenticate, checkBillingStatus, async (req, res) =>
 app.get('/api/billing/status', authenticate, async (req, res) => {
   try {
     const orgResult = await db.query(
-      'SELECT subscription_status, trial_ends_at FROM organizations WHERE id = $1',
+      'SELECT subscription_status, trial_ends_at, plan_type FROM organizations WHERE id = $1',
       [req.user.org_id]
     );
     if (orgResult.rows.length === 0) {
@@ -1079,24 +1116,38 @@ app.get('/api/billing/status', authenticate, async (req, res) => {
     );
     const totalDevices = parseInt(deviceResult.rows[0].total) || 0;
     const enabledDevices = parseInt(deviceResult.rows[0].enabled_count) || 0;
-    const billableDevices = Math.max(enabledDevices - 1, 0); // First device free
+    const billableDevices = enabledDevices; // ALL devices are billed (no free device)
 
     const trialEndsAt = new Date(org.trial_ends_at);
     const now = new Date();
     const isTrialActive = org.subscription_status === 'trial' && trialEndsAt > now;
     const trialDaysRemaining = Math.max(0, Math.ceil((trialEndsAt - now) / (1000 * 60 * 60 * 24)));
 
+    // Plan details
+    const planDetails = {
+      'trial': { name: 'Trial', price_per_device: 0, features: ['all'] },
+      'pure_edge': { name: 'Pure Edge', price_per_device: 0.15, features: ['edge_inference', 'model_zoo', 'analytics'] },
+      'hybrid_rag': { name: 'Hybrid RAG', price_per_device: 0.45, features: ['edge_inference', 'model_zoo', 'analytics', 'rag', 'vector_search', 'document_management'] },
+      'none': { name: 'None', price_per_device: 0, features: ['limited_trial'] }
+    };
+
+    const currentPlan = planDetails[org.plan_type] || planDetails['none'];
+    const monthlyCost = billableDevices * currentPlan.price_per_device;
+
     res.json({
       subscription_status: org.subscription_status,
+      plan_type: org.plan_type || 'trial',
+      plan_name: currentPlan.name,
+      plan_features: currentPlan.features,
       trial_ends_at: org.trial_ends_at,
       trial_days_remaining: trialDaysRemaining,
       trial_end_date: org.trial_ends_at,
       device_count: totalDevices,
       enabled_devices: enabledDevices,
       billable_devices: billableDevices,
-      monthly_cost: billableDevices * 10,
-      is_trial_active: isTrialActive,
-      first_device_free: true
+      price_per_device: currentPlan.price_per_device,
+      monthly_cost: monthlyCost,
+      is_trial_active: isTrialActive
     });
   } catch (err) {
     console.error('Billing status error:', err);
@@ -1165,7 +1216,13 @@ app.post('/api/billing/validate-discount', authenticate, async (req, res) => {
 });
 
 app.post('/api/billing/create-checkout', authenticate, async (req, res) => {
-  const { discountCode } = req.body;
+  const { discountCode, plan } = req.body;
+
+  // Validate plan parameter
+  if (!plan || !['pure_edge', 'hybrid_rag'].includes(plan)) {
+    return res.status(400).json({ error: 'Invalid plan. Must be "pure_edge" or "hybrid_rag".' });
+  }
+
   try {
     const orgResult = await db.query(
       'SELECT id, name, stripe_customer_id FROM organizations WHERE id = $1',
@@ -1176,16 +1233,24 @@ app.post('/api/billing/create-checkout', authenticate, async (req, res) => {
     }
     const org = orgResult.rows[0];
 
-    // Get ENABLED device count for organization (first device is free)
+    // Get ENABLED device count for organization (ALL devices are billed)
     const deviceResult = await db.query(
       'SELECT COUNT(*) as device_count FROM devices WHERE organization_id = $1 AND enabled = true',
       [req.user.org_id]
     );
     const totalDevices = parseInt(deviceResult.rows[0].device_count) || 0;
-    const billableDevices = Math.max(totalDevices - 1, 0); // First device is free
+    const billableDevices = totalDevices; // ALL devices are billed (no free device)
 
-    // Allow subscription even with 0 devices — user gets unlimited inferences
+    // Minimum quantity is 1 (allows subscription even with 0 devices)
     const subscriptionQuantity = Math.max(billableDevices, 1);
+
+    // Plan pricing configuration
+    const planConfig = {
+      pure_edge: { name: 'SlyOS Pure Edge', unit_amount: 15, description: 'Edge inference only — $0.15/device/month' },
+      hybrid_rag: { name: 'SlyOS Hybrid RAG', unit_amount: 45, description: 'Edge inference + RAG — $0.45/device/month' }
+    };
+
+    const selectedPlan = planConfig[plan];
 
     // Create or retrieve Stripe customer
     let customerId = org.stripe_customer_id;
@@ -1261,12 +1326,10 @@ app.post('/api/billing/create-checkout', authenticate, async (req, res) => {
           price_data: {
             currency: 'usd',
             product_data: {
-              name: 'SlyOS Pro',
-              description: billableDevices > 0
-                ? `SlyOS Edge AI — $10/device/month (${billableDevices} billable device${billableDevices !== 1 ? 's' : ''}, 1st device free)`
-                : 'SlyOS Pro — Unlimited AI inferences ($10/month, first device free)'
+              name: selectedPlan.name,
+              description: selectedPlan.description
             },
-            unit_amount: 1000,
+            unit_amount: selectedPlan.unit_amount,
             recurring: {
               interval: 'month',
               interval_count: 1
@@ -1279,7 +1342,7 @@ app.post('/api/billing/create-checkout', authenticate, async (req, res) => {
       ...(discounts && { discounts }),
       success_url: (process.env.DASHBOARD_URL || 'https://dashboard.slyos.world') + '/dashboard/billing?success=true',
       cancel_url: (process.env.DASHBOARD_URL || 'https://dashboard.slyos.world') + '/dashboard/billing?canceled=true',
-      metadata: { org_id: org.id }
+      metadata: { org_id: org.id, plan_type: plan }
     });
 
     res.json({ url: session.url });
@@ -1293,13 +1356,15 @@ app.post('/api/billing/create-checkout', authenticate, async (req, res) => {
 app.get('/api/credits/balance', authenticate, async (req, res) => {
   try {
     const orgResult = await db.query(
-      'SELECT credits_balance FROM organizations WHERE id = $1',
+      'SELECT credits_balance, subscription_status, plan_type FROM organizations WHERE id = $1',
       [req.user.org_id]
     );
     if (orgResult.rows.length === 0) {
       return res.status(404).json({ error: 'Organization not found' });
     }
     const creditsBalance = orgResult.rows[0].credits_balance || 100;
+    const subscriptionStatus = orgResult.rows[0].subscription_status;
+    const planType = orgResult.rows[0].plan_type || 'trial';
 
     // Calculate totals from ledger
     const ledgerResult = await db.query(`
@@ -1323,20 +1388,31 @@ app.get('/api/credits/balance', authenticate, async (req, res) => {
       LIMIT 20
     `, [req.user.org_id]);
 
-    // Check subscription status
-    const subResult = await db.query('SELECT subscription_status FROM organizations WHERE id = $1', [req.user.org_id]);
-    const isSubscribed = subResult.rows[0]?.subscription_status === 'active';
+    // Determine credit balance and how it works
+    let balance = creditsBalance;
+    let isUnlimited = false;
+    let howItWorks = '';
+
+    if (subscriptionStatus === 'active' && (planType === 'pure_edge' || planType === 'hybrid_rag')) {
+      // Subscribers get unlimited inferences (no credit deduction)
+      balance = 'unlimited';
+      isUnlimited = true;
+      howItWorks = `You have an active ${planType === 'pure_edge' ? 'Pure Edge' : 'Hybrid RAG'} subscription — unlimited inferences included.`;
+    } else {
+      // Trial or no subscription: 100 free inferences
+      howItWorks = `You have ${creditsBalance} of 100 free inferences remaining. Subscribe for unlimited.`;
+    }
 
     res.json({
-      balance: isSubscribed ? 'unlimited' : creditsBalance,
-      is_subscribed: isSubscribed,
+      balance: balance,
+      is_subscribed: isUnlimited,
+      plan_type: planType,
+      subscription_status: subscriptionStatus,
       free_credits_total: 100,
       total_earned: totalEarned,
       total_spent: totalSpent,
       credit_value: 0.01,
-      how_it_works: isSubscribed
-        ? 'You have an active subscription — unlimited inferences included.'
-        : `You have ${creditsBalance} of 100 free inferences remaining. Subscribe for unlimited.`,
+      how_it_works: howItWorks,
       history: historyResult.rows
     });
   } catch (err) {
@@ -1349,9 +1425,13 @@ app.post('/api/credits/purchase', authenticate, async (req, res) => {
   // No pay-per-inference. Credits are a free trial meter.
   // When credits run out, users subscribe for unlimited inferences.
   res.json({
-    message: 'SlyOS doesn\'t charge per inference. Your 100 free credits let you try the platform. Subscribe for $10/device/month to get unlimited inferences.',
+    message: 'SlyOS doesn\'t charge per inference. Your 100 free credits let you try the platform. Subscribe to Pure Edge ($0.15/device/month) or Hybrid RAG ($0.45/device/month) to get unlimited inferences.',
     action: 'subscribe',
-    billing_url: '/dashboard/billing'
+    billing_url: '/dashboard/billing',
+    plans: [
+      { name: 'Pure Edge', price: '0.15/device/month', features: ['edge_inference', 'model_zoo', 'analytics'] },
+      { name: 'Hybrid RAG', price: '0.45/device/month', features: ['edge_inference', 'model_zoo', 'analytics', 'rag', 'vector_search'] }
+    ]
   });
 });
 
@@ -1477,7 +1557,7 @@ app.post('/api/widget/:orgApiKey/generate', async (req, res) => {
       sessionId,
       model,
       creditsRemaining: remaining,
-      ...(!isSubscribed && creditsBalance <= 1 && { credits_exhausted: true, upgrade_message: 'Your free inferences are used up. Subscribe for unlimited at $10/device/month.' })
+      ...(!isSubscribed && creditsBalance <= 1 && { credits_exhausted: true, upgrade_message: 'Your free inferences are used up. Subscribe to Pure Edge ($0.15/device/month) or Hybrid RAG ($0.45/device/month) for unlimited.' })
     });
   } catch (err) {
     console.error('Widget generate error:', err);
@@ -1512,7 +1592,7 @@ try {
 
 // --- Knowledge Base CRUD ---
 
-app.post('/api/rag/knowledge-bases', authenticate, async (req, res) => {
+app.post('/api/rag/knowledge-bases', authenticate, checkBillingStatus, async (req, res) => {
   const { name, description, tier, chunk_size, chunk_overlap, model_id, system_prompt, temperature, top_k } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
   const validChunkSize = Math.max(100, Math.min(chunk_size || 512, 10000));
@@ -1544,7 +1624,7 @@ app.post('/api/rag/knowledge-bases', authenticate, async (req, res) => {
   }
 });
 
-app.get('/api/rag/knowledge-bases', authenticate, async (req, res) => {
+app.get('/api/rag/knowledge-bases', authenticate, checkBillingStatus, async (req, res) => {
   try {
     const result = await db.query(`
       SELECT kb.*,
@@ -1561,7 +1641,7 @@ app.get('/api/rag/knowledge-bases', authenticate, async (req, res) => {
   }
 });
 
-app.get('/api/rag/knowledge-bases/:kbId', authenticate, async (req, res) => {
+app.get('/api/rag/knowledge-bases/:kbId', authenticate, checkBillingStatus, async (req, res) => {
   try {
     const kb = await db.query('SELECT * FROM knowledge_bases WHERE id = $1 AND organization_id = $2', [req.params.kbId, req.user.org_id]);
     if (kb.rows.length === 0) return res.status(404).json({ error: 'Knowledge base not found' });
@@ -1585,7 +1665,7 @@ app.get('/api/rag/knowledge-bases/:kbId', authenticate, async (req, res) => {
   }
 });
 
-app.put('/api/rag/knowledge-bases/:kbId', authenticate, async (req, res) => {
+app.put('/api/rag/knowledge-bases/:kbId', authenticate, checkBillingStatus, async (req, res) => {
   const { name, description, chunk_size, chunk_overlap, model_id, system_prompt, temperature, top_k } = req.body;
   try {
     let result;
@@ -1617,7 +1697,7 @@ app.put('/api/rag/knowledge-bases/:kbId', authenticate, async (req, res) => {
   }
 });
 
-app.delete('/api/rag/knowledge-bases/:kbId', authenticate, async (req, res) => {
+app.delete('/api/rag/knowledge-bases/:kbId', authenticate, checkBillingStatus, async (req, res) => {
   try {
     const result = await db.query('DELETE FROM knowledge_bases WHERE id = $1 AND organization_id = $2 RETURNING id', [req.params.kbId, req.user.org_id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Knowledge base not found' });
@@ -1630,7 +1710,7 @@ app.delete('/api/rag/knowledge-bases/:kbId', authenticate, async (req, res) => {
 
 // --- Document Upload & Management ---
 
-app.post('/api/rag/knowledge-bases/:kbId/documents/upload', authenticate, (req, res, next) => {
+app.post('/api/rag/knowledge-bases/:kbId/documents/upload', authenticate, checkBillingStatus, (req, res, next) => {
   // Wrap multer in error handler so we get useful error messages
   const multerUpload = upload.array('files', 10);
   multerUpload(req, res, (err) => {
@@ -1727,7 +1807,7 @@ app.post('/api/rag/knowledge-bases/:kbId/documents/upload', authenticate, (req, 
   }
 });
 
-app.post('/api/rag/knowledge-bases/:kbId/documents/scrape', authenticate, async (req, res) => {
+app.post('/api/rag/knowledge-bases/:kbId/documents/scrape', authenticate, checkBillingStatus, async (req, res) => {
   const { kbId } = req.params;
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: 'URL is required' });
@@ -1810,7 +1890,7 @@ app.post('/api/rag/knowledge-bases/:kbId/documents/scrape', authenticate, async 
   }
 });
 
-app.get('/api/rag/knowledge-bases/:kbId/documents', authenticate, async (req, res) => {
+app.get('/api/rag/knowledge-bases/:kbId/documents', authenticate, checkBillingStatus, async (req, res) => {
   try {
     const docs = await db.query(
       'SELECT id, name, file_type, file_size_bytes, source_url, chunk_count, indexed, created_at FROM rag_documents WHERE knowledge_base_id = $1 AND organization_id = $2 ORDER BY created_at DESC',
@@ -1823,7 +1903,7 @@ app.get('/api/rag/knowledge-bases/:kbId/documents', authenticate, async (req, re
   }
 });
 
-app.delete('/api/rag/knowledge-bases/:kbId/documents/:docId', authenticate, async (req, res) => {
+app.delete('/api/rag/knowledge-bases/:kbId/documents/:docId', authenticate, checkBillingStatus, async (req, res) => {
   try {
     const result = await db.query(
       'DELETE FROM rag_documents WHERE id = $1 AND knowledge_base_id = $2 AND organization_id = $3 RETURNING id',
@@ -1839,7 +1919,7 @@ app.delete('/api/rag/knowledge-bases/:kbId/documents/:docId', authenticate, asyn
 
 // --- Vector Search & RAG Query ---
 
-app.post('/api/rag/knowledge-bases/:kbId/search', authenticate, async (req, res) => {
+app.post('/api/rag/knowledge-bases/:kbId/search', authenticate, checkBillingStatus, async (req, res) => {
   const { query, top_k } = req.body;
   if (!query) return res.status(400).json({ error: 'Query is required' });
 
@@ -1883,7 +1963,7 @@ app.post('/api/rag/knowledge-bases/:kbId/search', authenticate, async (req, res)
   }
 });
 
-app.post('/api/rag/knowledge-bases/:kbId/query', authenticate, async (req, res) => {
+app.post('/api/rag/knowledge-bases/:kbId/query', authenticate, checkBillingStatus, async (req, res) => {
   const { query, top_k, model_id } = req.body;
   if (!query) return res.status(400).json({ error: 'Query is required' });
 
@@ -1963,7 +2043,7 @@ app.post('/api/rag/knowledge-bases/:kbId/query', authenticate, async (req, res) 
 
 // --- Tier 3: Sync Endpoints ---
 
-app.post('/api/rag/knowledge-bases/:kbId/sync', authenticate, async (req, res) => {
+app.post('/api/rag/knowledge-bases/:kbId/sync', authenticate, checkBillingStatus, async (req, res) => {
   const { device_id } = req.body;
   if (!device_id) return res.status(400).json({ error: 'device_id is required' });
 

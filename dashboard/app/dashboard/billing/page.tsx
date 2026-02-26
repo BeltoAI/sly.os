@@ -41,6 +41,10 @@ export default function BillingPage() {
     try {
       const data = await getBillingStatus();
       setBillingStatus(data);
+      // Store plan type in localStorage for other pages to access
+      if (data?.plan_type) {
+        localStorage.setItem('userPlan', data.plan_type);
+      }
     } catch (err) {
       console.error('Failed to load billing status:', err);
     } finally {
@@ -150,8 +154,16 @@ export default function BillingPage() {
   const isExpired = billingStatus?.subscription_status === 'expired' || billingStatus?.subscription_status === 'canceled';
   const deviceCount = billingStatus?.device_count || 0;
   const enabledDevices = billingStatus?.enabled_devices || deviceCount;
-  const billableDevices = billingStatus?.billable_devices ?? Math.max(enabledDevices - 1, 0);
-  const costPerDevice = 10;
+  const billableDevices = billingStatus?.billable_devices ?? enabledDevices;
+  const planType = billingStatus?.plan_type || 'pure_edge'; // 'trial', 'pure_edge', 'hybrid_rag'
+
+  // Pricing tiers
+  const plans = {
+    pure_edge: { name: 'Pure Edge', price: 0.15 },
+    hybrid_rag: { name: 'Hybrid RAG', price: 0.45 }
+  };
+
+  const costPerDevice = plans[planType as keyof typeof plans]?.price || plans.pure_edge.price;
   const totalMonthlyCost = billableDevices * costPerDevice;
 
   return (
@@ -333,6 +345,50 @@ export default function BillingPage() {
           </CardContent>
         </Card>
 
+        {/* Plan Selector Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Zap className="w-4 h-4 text-[#FF4D00]" />
+              Current Plan
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <p className="text-xs text-[#555555] uppercase tracking-wider font-medium">Your Plan</p>
+              <div className="p-4 rounded-lg bg-[rgba(255,77,0,0.08)] border border-[rgba(255,77,0,0.2)]">
+                <p className="text-lg font-bold text-[#EDEDED]">{plans[planType as keyof typeof plans]?.name}</p>
+                <p className="text-xs text-[#888888] mt-1">${plans[planType as keyof typeof plans]?.price}/device/month</p>
+              </div>
+            </div>
+            <div className="text-xs text-[#666666] space-y-2 pt-2 border-t border-[rgba(255,255,255,0.06)]">
+              {planType === 'pure_edge' && (
+                <>
+                  <p className="font-semibold text-[#EDEDED]">Pure Edge includes:</p>
+                  <ul className="space-y-1 text-[#888888]">
+                    <li>• Edge inference on device</li>
+                    <li>• Model zoo access</li>
+                    <li>• Device profiling & analytics</li>
+                    <li>• Email support</li>
+                  </ul>
+                </>
+              )}
+              {planType === 'hybrid_rag' && (
+                <>
+                  <p className="font-semibold text-[#EDEDED]">Hybrid RAG includes:</p>
+                  <ul className="space-y-1 text-[#888888]">
+                    <li>• Everything in Pure Edge</li>
+                    <li>• RAG knowledge bases</li>
+                    <li>• Vector search</li>
+                    <li>• Document management</li>
+                    <li>• URL scraping & offline sync</li>
+                  </ul>
+                </>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Discount Code Card */}
         <Card>
           <CardHeader>
@@ -443,7 +499,7 @@ export default function BillingPage() {
               <div className="space-y-2 text-sm text-[#888888]">
                 <p>Every new account gets <span className="text-[#EDEDED] font-semibold">100 free inferences</span> to try SlyOS.</p>
                 {!creditsBalance?.is_subscribed && (
-                  <p>After that, subscribe for <span className="text-[#FF4D00] font-semibold">unlimited inferences</span> at $10/device/month. No per-inference charges ever.</p>
+                  <p>After that, subscribe to Pure Edge or Hybrid RAG for <span className="text-[#FF4D00] font-semibold">unlimited inferences</span>. No per-inference charges ever.</p>
                 )}
               </div>
             </div>
@@ -460,28 +516,28 @@ export default function BillingPage() {
           </CardHeader>
           <CardContent className="space-y-6">
             <div>
-              <p className="text-xs text-[#555555] uppercase tracking-wider font-medium mb-2">Total Devices</p>
+              <p className="text-xs text-[#555555] uppercase tracking-wider font-medium mb-2">Enabled Devices</p>
               <p className="text-3xl font-bold text-[#EDEDED]">{enabledDevices}</p>
-              <p className="text-xs text-[#4ade80] mt-1">1st device is free</p>
+              <p className="text-xs text-[#888888] mt-1">All devices billable</p>
             </div>
             <div className="pt-4 border-t border-[rgba(255,255,255,0.06)]">
               <p className="text-xs text-[#555555] uppercase tracking-wider font-medium mb-3">Monthly Cost</p>
               <div className="space-y-2">
-                {enabledDevices > 0 && (
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-[#4ade80]">1st device</span>
-                    <span className="text-[#4ade80] font-semibold">Free</span>
-                  </div>
-                )}
                 {billableDevices > 0 && (
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-[#888888]">{billableDevices} extra × ${costPerDevice}</span>
-                    <span className="text-[#EDEDED] font-semibold">${totalMonthlyCost}</span>
+                    <span className="text-[#888888]">{billableDevices} device{billableDevices > 1 ? 's' : ''} × ${costPerDevice}</span>
+                    <span className="text-[#EDEDED] font-semibold">${totalMonthlyCost.toFixed(2)}</span>
+                  </div>
+                )}
+                {billableDevices === 0 && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-[#888888]">No enabled devices</span>
+                    <span className="text-[#EDEDED] font-semibold">$0.00</span>
                   </div>
                 )}
                 <div className="flex items-center justify-between text-sm pt-2 border-t border-[rgba(255,255,255,0.06)]">
                   <span className="text-[#EDEDED] font-semibold">Total</span>
-                  <span className="text-[#EDEDED] font-bold text-lg">${totalMonthlyCost}/mo</span>
+                  <span className="text-[#EDEDED] font-bold text-lg">${totalMonthlyCost.toFixed(2)}/mo</span>
                 </div>
               </div>
             </div>
@@ -489,66 +545,120 @@ export default function BillingPage() {
         </Card>
       </div>
 
-      {/* Pricing Section */}
+      {/* Pricing Plans Section */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <Zap className="w-4 h-4 text-[#FF4D00]" />
-            Pro Plan Features
+            Pricing Plans
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <p className="text-sm text-[#555555] uppercase tracking-wider font-medium mb-4">What's Included</p>
-              <ul className="space-y-3">
-                <li className="flex items-start gap-3">
-                  <Check className="w-5 h-5 text-[#22c55e] shrink-0 mt-0.5" />
-                  <span className="text-sm text-[#EDEDED]">Unlimited inferences per device</span>
-                </li>
-                <li className="flex items-start gap-3">
-                  <Check className="w-5 h-5 text-[#22c55e] shrink-0 mt-0.5" />
-                  <span className="text-sm text-[#EDEDED]">Access to all AI models</span>
-                </li>
-                <li className="flex items-start gap-3">
-                  <Check className="w-5 h-5 text-[#22c55e] shrink-0 mt-0.5" />
-                  <span className="text-sm text-[#EDEDED]">Device profiling and analytics</span>
-                </li>
-                <li className="flex items-start gap-3">
-                  <Check className="w-5 h-5 text-[#22c55e] shrink-0 mt-0.5" />
-                  <span className="text-sm text-[#EDEDED]">Advanced analytics dashboard</span>
-                </li>
-                <li className="flex items-start gap-3">
-                  <Check className="w-5 h-5 text-[#22c55e] shrink-0 mt-0.5" />
-                  <span className="text-sm text-[#EDEDED]">Email support</span>
-                </li>
-              </ul>
-            </div>
-            <div className="bg-gradient-to-br from-[#FF4D00]/5 to-[#FF6B35]/5 rounded-lg p-6 border border-[#FF4D00]/10">
-              <div className="flex flex-col h-full justify-between">
-                <div>
-                  <p className="text-sm text-[#555555] uppercase tracking-wider font-medium mb-3">Pricing</p>
-                  <div className="mb-4">
-                    <div className="flex items-baseline gap-2 mb-1">
-                      <span className="text-4xl font-bold text-[#4ade80]">Free</span>
-                    </div>
-                    <p className="text-xs text-[#888888]">Your 1st device — always free, no card needed</p>
-                  </div>
-                  <div className="mb-6">
-                    <div className="flex items-baseline gap-2 mb-1">
-                      <span className="text-4xl font-bold text-[#FF4D00]">$10</span>
-                      <span className="text-[#888888]">/device/month</span>
-                    </div>
-                    <p className="text-xs text-[#555555]">Each additional device, billed monthly</p>
-                  </div>
+            {/* Pure Edge Plan */}
+            <div className={`rounded-2xl p-6 border-2 transition-all ${
+              planType === 'pure_edge'
+                ? 'bg-[rgba(255,77,0,0.08)] border-[#22c55e]'
+                : 'bg-[rgba(0,0,0,0.2)] border-[rgba(255,255,255,0.1)]'
+            }`}>
+              {planType === 'pure_edge' && (
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold text-[#EDEDED]">Pure Edge</h3>
+                  <span className="text-xs bg-[#22c55e]/20 text-[#22c55e] px-3 py-1 rounded-full font-semibold">Current Plan</span>
                 </div>
-                <div className="text-xs text-[#555555] space-y-1">
-                  <p>First device always free — no credit card required</p>
-                  <p>30-day free trial when adding more devices</p>
-                  <p>Cancel anytime, no long-term contracts</p>
+              )}
+              {planType !== 'pure_edge' && (
+                <h3 className="text-lg font-bold text-[#EDEDED] mb-4">Pure Edge</h3>
+              )}
+              <div className="mb-6">
+                <div className="flex items-baseline gap-2 mb-1">
+                  <span className="text-4xl font-bold text-[#FF4D00]">$0.15</span>
+                  <span className="text-[#888888]">/device/month</span>
                 </div>
+                <p className="text-xs text-[#555555]">Edge-first inference on your devices</p>
               </div>
+              <div className="space-y-3 mb-6">
+                <p className="text-xs text-[#555555] uppercase font-semibold">Features included:</p>
+                <ul className="space-y-2">
+                  <li className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-[#22c55e] shrink-0 mt-0.5" />
+                    <span className="text-sm text-[#EDEDED]">Edge inference on device</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-[#22c55e] shrink-0 mt-0.5" />
+                    <span className="text-sm text-[#EDEDED]">Model zoo access</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-[#22c55e] shrink-0 mt-0.5" />
+                    <span className="text-sm text-[#EDEDED]">Device profiling & analytics</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-[#22c55e] shrink-0 mt-0.5" />
+                    <span className="text-sm text-[#EDEDED]">Email support</span>
+                  </li>
+                </ul>
+              </div>
+              {planType !== 'pure_edge' && (
+                <Button variant="outline" className="w-full gap-2">
+                  Downgrade to Pure Edge
+                </Button>
+              )}
             </div>
+
+            {/* Hybrid RAG Plan */}
+            <div className={`rounded-2xl p-6 border-2 transition-all ${
+              planType === 'hybrid_rag'
+                ? 'bg-[rgba(255,77,0,0.08)] border-[#22c55e]'
+                : 'bg-[rgba(0,0,0,0.2)] border-[rgba(255,255,255,0.1)]'
+            }`}>
+              {planType === 'hybrid_rag' && (
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold text-[#EDEDED]">Hybrid RAG</h3>
+                  <span className="text-xs bg-[#22c55e]/20 text-[#22c55e] px-3 py-1 rounded-full font-semibold">Current Plan</span>
+                </div>
+              )}
+              {planType !== 'hybrid_rag' && (
+                <h3 className="text-lg font-bold text-[#EDEDED] mb-4">Hybrid RAG</h3>
+              )}
+              <div className="mb-6">
+                <div className="flex items-baseline gap-2 mb-1">
+                  <span className="text-4xl font-bold text-[#FF4D00]">$0.45</span>
+                  <span className="text-[#888888]">/device/month</span>
+                </div>
+                <p className="text-xs text-[#555555]">Edge inference + RAG knowledge bases</p>
+              </div>
+              <div className="space-y-3 mb-6">
+                <p className="text-xs text-[#555555] uppercase font-semibold">Everything in Pure Edge, plus:</p>
+                <ul className="space-y-2">
+                  <li className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-[#22c55e] shrink-0 mt-0.5" />
+                    <span className="text-sm text-[#EDEDED]">RAG knowledge bases</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-[#22c55e] shrink-0 mt-0.5" />
+                    <span className="text-sm text-[#EDEDED]">Vector search</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-[#22c55e] shrink-0 mt-0.5" />
+                    <span className="text-sm text-[#EDEDED]">Document management</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-[#22c55e] shrink-0 mt-0.5" />
+                    <span className="text-sm text-[#EDEDED]">URL scraping & offline sync</span>
+                  </li>
+                </ul>
+              </div>
+              {planType !== 'hybrid_rag' && (
+                <Button className="w-full gap-2 bg-[#FF4D00] hover:bg-[#E63F00]">
+                  Upgrade to Hybrid RAG
+                </Button>
+              )}
+            </div>
+          </div>
+          <div className="mt-6 p-4 bg-[rgba(255,77,0,0.05)] border border-[rgba(255,77,0,0.1)] rounded-lg">
+            <p className="text-xs text-[#888888]">
+              <span className="text-[#EDEDED] font-semibold">Billing & Trial:</span> All new accounts start with a free trial. After the trial ends, billing is per-device per-month. Cancel anytime, no contracts.
+            </p>
           </div>
         </CardContent>
       </Card>

@@ -55,7 +55,7 @@ export default function DevicesPage() {
 
   const enabledCount = devices.filter(d => d.enabled !== false).length;
   const disabledCount = devices.filter(d => d.enabled === false).length;
-  const billableCount = Math.max(enabledCount - 1, 0);
+  const billableCount = enabledCount;
 
   const platformIcon = (platform: string) => {
     const iconClass = "w-4 h-4";
@@ -104,17 +104,17 @@ export default function DevicesPage() {
         </div>
         <div className="backdrop-blur-xl bg-[#0A0A0A]/80 border border-[rgba(255,255,255,0.08)] rounded-xl p-4">
           <div className="flex items-center gap-1.5 mb-1">
-            <Shield className="w-3 h-3 text-[#4ade80]" />
-            <p className="text-[10px] text-[#555555] uppercase tracking-wider font-semibold">1st Device</p>
+            <Shield className="w-3 h-3 text-[#FF4D00]" />
+            <p className="text-[10px] text-[#555555] uppercase tracking-wider font-semibold">Billing</p>
           </div>
-          <p className="text-2xl font-bold text-[#4ade80]">Free</p>
+          <p className="text-2xl font-bold text-[#EDEDED]">All Devices</p>
         </div>
         <div className="backdrop-blur-xl bg-[#0A0A0A]/80 border border-[rgba(255,255,255,0.08)] rounded-xl p-4">
-          <p className="text-[10px] text-[#555555] uppercase tracking-wider font-semibold mb-1">Monthly Cost</p>
+          <p className="text-[10px] text-[#555555] uppercase tracking-wider font-semibold mb-1">Monthly Cost*</p>
           <p className="text-2xl font-bold text-[#EDEDED]">
-            ${billableCount * 10}
+            ${(billableCount * 0.15).toFixed(2)}-${(billableCount * 0.45).toFixed(2)}
             <span className="text-sm font-normal text-[#555555] ml-1">
-              {billableCount > 0 ? `(${billableCount} × $10)` : ''}
+              {billableCount > 0 ? `${billableCount} device${billableCount !== 1 ? 's' : ''}` : 'none'}
             </span>
           </p>
         </div>
@@ -163,7 +163,7 @@ export default function DevicesPage() {
                           : 'bg-[#ef4444]/15 text-[#ef4444]'
                       }`}>
                         <div className={`w-1.5 h-1.5 rounded-full ${isEnabled ? 'bg-[#4ade80]' : 'bg-[#ef4444]'}`} />
-                        {isEnabled ? (isFirstEnabled ? 'Active (Free)' : 'Active') : 'Disabled'}
+                        {isEnabled ? 'Active' : 'Disabled'}
                       </span>
                     </td>
                     <td className="py-4 px-6 text-xs text-[#666666] font-mono">
@@ -238,9 +238,9 @@ export default function DevicesPage() {
       {/* Info box */}
       <div className="mt-6 p-4 bg-[rgba(255,77,0,0.03)] border border-[rgba(255,77,0,0.12)] rounded-xl">
         <p className="text-xs text-[#888888]">
-          <span className="text-[#EDEDED] font-semibold">How billing works:</span> Your first device is always free.
-          Each additional enabled device is $10/month. Disabling a device stops its SDK access and removes it from billing.
-          Removing a device deletes it permanently.
+          <span className="text-[#EDEDED] font-semibold">How billing works:</span> All enabled devices are billable based on your plan
+          ($0.15/device/month for Pure Edge, $0.45/device/month for Hybrid RAG). Disabling a device stops its SDK access and removes it from billing.
+          Removing a device deletes it permanently. <span className="text-[#FF4D00]">*See your billing page to view exact costs based on your plan.</span>
         </p>
       </div>
     </div>
