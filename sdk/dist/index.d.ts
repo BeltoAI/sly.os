@@ -161,11 +161,13 @@ declare class SlyOS {
     private onProgress;
     private onEvent;
     private fallbackConfig;
+    private modelContextWindow;
     constructor(config: SlyOSConfigWithFallback);
     private emitProgress;
     private emitEvent;
     analyzeDevice(): Promise<DeviceProfile>;
     getDeviceProfile(): DeviceProfile | null;
+    getModelContextWindow(): number;
     recommendModel(category?: ModelCategory): {
         modelId: string;
         quant: QuantizationLevel;
@@ -180,6 +182,17 @@ declare class SlyOS {
             minRAM_MB: Record<string, number>;
         }[];
     }>;
+    searchModels(query: string, options?: {
+        limit?: number;
+        task?: string;
+    }): Promise<Array<{
+        id: string;
+        name: string;
+        downloads: number;
+        likes: number;
+        task: string;
+        size_category: string;
+    }>>;
     canRunModel(modelId: string, quant?: QuantizationLevel): {
         canRun: boolean;
         reason: string;
