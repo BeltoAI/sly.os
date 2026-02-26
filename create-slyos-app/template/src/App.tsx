@@ -196,12 +196,17 @@ export default function App() {
           const ragResult = await queryKnowledgeBase(inputValue, token);
 
           if (ragResult && ragResult.chunks && ragResult.chunks.length > 0) {
-            // Build context from retrieved chunks
-            const context = ragResult.chunks
-              .map((chunk) => chunk.content)
+            // Build context from retrieved chunks, adapted to model's context window
+            const contextWindow = slyos.getModelContextWindow() || 2048;
+            const maxContextChars = Math.max(500, (contextWindow - 200) * 3);
+            let context = ragResult.chunks
+              .map((chunk: any) => chunk.content)
               .join('\n\n');
+            if (context.length > maxContextChars) {
+              context = context.substring(0, maxContextChars);
+            }
 
-            const ragPrompt = `Based on the following context, answer the user's question:\n\nContext:\n${context}\n\nUser Question: ${inputValue}\n\nAnswer:`;
+            const ragPrompt = `${context}\n\nQuestion: ${inputValue}\nAnswer:`;
 
             // Use SDK to generate response with context
             const response = await slyos.generate(selectedModel, ragPrompt);

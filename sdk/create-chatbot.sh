@@ -307,14 +307,16 @@ async function sendMessage(userMessage) {
       try {
         const token = await getAuthToken();
         if (!token) throw new Error('Could not authenticate — check your API key');
-        // Only fetch top 2 chunks to fit in small model context window (2048 tokens)
+        // Adapt chunk count to model's context window
+        const modelCtx = sdk.getModelContextWindow?.() || 2048;
+        const topK = modelCtx <= 2048 ? 2 : modelCtx <= 4096 ? 3 : 5;
         const ragRes = await fetch(`${config.server}/api/rag/knowledge-bases/${config.kbId}/query`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
           },
-          body: JSON.stringify({ query: userMessage, top_k: 2, model_id: config.model })
+          body: JSON.stringify({ query: userMessage, top_k: topK, model_id: config.model })
         });
         if (!ragRes.ok) {
           const errText = await ragRes.text();
@@ -327,18 +329,23 @@ async function sendMessage(userMessage) {
         const goodChunks = chunks.filter(c => (c.similarity_score || 0) > 0.3);
 
         if (goodChunks.length > 0) {
-          // Clean and truncate context — strip weird chars, cap at 1200 chars
+          // Adapt context size to model's context window
+          const ctxWindow = sdk.getModelContextWindow?.() || 2048;
+          const maxContextChars = Math.max(500, (ctxWindow - 200) * 3);
+          const maxGenTokens = Math.min(200, Math.floor(ctxWindow / 4));
+
+          // Clean and truncate context — strip weird chars, fit model window
           let context = goodChunks.map(c => c.content).join('\n')
             .replace(/[^\x20-\x7E\n]/g, ' ')  // Strip non-ASCII/control chars
             .replace(/\s{3,}/g, ' ')            // Collapse excessive whitespace
             .trim();
-          if (context.length > 1200) context = context.substring(0, 1200);
+          if (context.length > maxContextChars) context = context.substring(0, maxContextChars);
 
           // Simple context-then-QA format — this works best with small models
           const prompt = `${context}\n\nQuestion: ${userMessage}\nAnswer:`;
           const response = await sdk.generate(config.model, prompt, {
             temperature: 0.5,
-            maxTokens: 150
+            maxTokens: maxGenTokens
           });
           assistantMessage = (typeof response === 'string' ? response : response?.text || response?.content || '') || '';
 

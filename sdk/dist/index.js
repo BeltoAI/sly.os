@@ -81,6 +81,25 @@ function selectQuantization(memoryMB, modelId) {
     }
     return 'q4'; // fallback
 }
+// ─── Context Window Detection ──────────────────────────────────────
+async function detectContextWindowFromHF(hfModelId) {
+    try {
+        const configUrl = `https://huggingface.co/${hfModelId}/raw/main/config.json`;
+        const response = await axios.get(configUrl, { timeout: 5000 });
+        const config = response.data;
+        // Try multiple context window field names
+        const contextWindow = config.max_position_embeddings ||
+            config.n_positions ||
+            config.max_seq_len ||
+            config.model_max_length ||
+            2048;
+        return contextWindow;
+    }
+    catch {
+        // Default if config cannot be fetched
+        return 2048;
+    }
+}
 // ─── Device Profiling ───────────────────────────────────────────────
 async function profileDevice() {
     const isNode = typeof window === 'undefined';
@@ -148,6 +167,7 @@ class SlyOS {
         this.token = null;
         this.models = new Map();
         this.deviceProfile = null;
+        this.modelContextWindow = 0;
         // ═══════════════════════════════════════════════════════════
         // RAG — Retrieval Augmented Generation
         // ═══════════════════════════════════════════════════════════
@@ -181,6 +201,9 @@ class SlyOS {
     }
     getDeviceProfile() {
         return this.deviceProfile;
+    }
+    getModelContextWindow() {
+        return this.modelContextWindow;
     }
     // ── Smart Model Recommendation ──────────────────────────────────
     recommendModel(category = 'llm') {
@@ -276,6 +299,31 @@ class SlyOS {
         }
         return Object.fromEntries(Object.entries(grouped).map(([cat, models]) => [cat, { models }]));
     }
+    async searchModels(query, options) {
+        try {
+            const limit = options?.limit || 20;
+            const filters = ['onnx']; // Filter for ONNX models only
+            if (options?.task) {
+                filters.push(options.task);
+            }
+            const filterString = filters.map(f => `"${f}"`).join(',');
+            const url = `https://huggingface.co/api/models?search=${encodeURIComponent(query)}&filter=${encodeURIComponent(`[${filterString}]`)}&sort=downloads&direction=-1&limit=${limit}`;
+            const response = await axios.get(url, { timeout: 10000 });
+            const models = Array.isArray(response.data) ? response.data : [];
+            return models.map((model) => ({
+                id: model.id,
+                name: model.id.split('/')[1] || model.id,
+                downloads: model.downloads || 0,
+                likes: model.likes || 0,
+                task: model.task || 'unknown',
+                size_category: model.size_category || 'unknown',
+            }));
+        }
+        catch (error) {
+            this.emitEvent('error', { stage: 'model_search', error: error.message });
+            throw new Error(`Model search failed: ${error.message}`);
+        }
+    }
     canRunModel(modelId, quant) {
         const info = modelMap[modelId];
         if (!info)
@@ -302,25 +350,37 @@ class SlyOS {
     }
     async loadModel(modelId, options) {
         const info = modelMap[modelId];
-        if (!info) {
-            const available = Object.keys(modelMap).join(', ');
-            throw new Error(`Unknown model "${modelId}". Available: ${available}`);
+        let hfModelId;
+        let task;
+        let estimatedSize;
+        // Handle curated models
+        if (info) {
+            hfModelId = info.hfModel;
+            task = info.task;
+            // Determine quantization
+            let quant = options?.quant || 'fp32';
+            if (!options?.quant && this.deviceProfile) {
+                quant = selectQuantization(this.deviceProfile.memoryMB, modelId);
+                this.emitProgress('downloading', 0, `Auto-selected ${quant.toUpperCase()} quantization for your device`);
+            }
+            // Check feasibility
+            const check = this.canRunModel(modelId, quant);
+            if (!check.canRun) {
+                this.emitProgress('error', 0, check.reason);
+                throw new Error(check.reason);
+            }
+            estimatedSize = info.sizesMB[quant];
+            this.emitProgress('downloading', 0, `Downloading ${modelId} (${quant.toUpperCase()}, ~${estimatedSize}MB)...`);
+            this.emitEvent('model_download_start', { modelId, quant, estimatedSizeMB: estimatedSize });
         }
-        // Determine quantization
-        let quant = options?.quant || 'fp32';
-        if (!options?.quant && this.deviceProfile) {
-            quant = selectQuantization(this.deviceProfile.memoryMB, modelId);
-            this.emitProgress('downloading', 0, `Auto-selected ${quant.toUpperCase()} quantization for your device`);
+        else {
+            // Handle custom HuggingFace models
+            hfModelId = modelId;
+            task = 'text-generation'; // Default task
+            estimatedSize = 2048; // Default estimate
+            this.emitProgress('downloading', 0, `Loading custom HuggingFace model: ${modelId}...`);
+            this.emitEvent('model_download_start', { modelId, custom: true, estimatedSizeMB: estimatedSize });
         }
-        // Check feasibility
-        const check = this.canRunModel(modelId, quant);
-        if (!check.canRun) {
-            this.emitProgress('error', 0, check.reason);
-            throw new Error(check.reason);
-        }
-        const estimatedSize = info.sizesMB[quant];
-        this.emitProgress('downloading', 0, `Downloading ${modelId} (${quant.toUpperCase()}, ~${estimatedSize}MB)...`);
-        this.emitEvent('model_download_start', { modelId, quant, estimatedSizeMB: estimatedSize });
         // Map quant to dtype for HuggingFace
         const dtypeMap = {
             q4: 'q4',
@@ -331,9 +391,14 @@ class SlyOS {
         let lastReportedPercent = 0;
         const startTime = Date.now();
         try {
-            const pipe = await pipeline(info.task, info.hfModel, {
+            // For custom HF models, detect context window
+            let detectedContextWindow = 2048;
+            if (!info) {
+                detectedContextWindow = await detectContextWindowFromHF(hfModelId);
+            }
+            const pipe = await pipeline(task, hfModelId, {
                 device: 'cpu',
-                dtype: dtypeMap[quant],
+                dtype: 'q4', // Default to q4 for stability
                 progress_callback: (progressData) => {
                     // HuggingFace transformers sends progress events during download
                     if (progressData && typeof progressData === 'object') {
@@ -362,12 +427,22 @@ class SlyOS {
                 },
             });
             const loadTime = Date.now() - startTime;
-            const contextWindow = this.deviceProfile
-                ? recommendContextWindow(this.deviceProfile.memoryMB, quant)
-                : 2048;
-            this.models.set(modelId, { pipe, info, quant, contextWindow });
-            this.emitProgress('ready', 100, `${modelId} loaded (${quant.toUpperCase()}, ${(loadTime / 1000).toFixed(1)}s, ctx: ${contextWindow})`);
-            this.emitEvent('model_loaded', { modelId, quant, loadTimeMs: loadTime, contextWindow });
+            let contextWindow;
+            if (info) {
+                // For curated models, use recommendContextWindow
+                const quant = options?.quant || (this.deviceProfile ? selectQuantization(this.deviceProfile.memoryMB, modelId) : 'q4');
+                contextWindow = this.deviceProfile
+                    ? recommendContextWindow(this.deviceProfile.memoryMB, quant)
+                    : 2048;
+            }
+            else {
+                // For custom HF models, use detected context window
+                contextWindow = detectedContextWindow;
+            }
+            this.modelContextWindow = contextWindow;
+            this.models.set(modelId, { pipe, info, quant: 'q4', contextWindow });
+            this.emitProgress('ready', 100, `${modelId} loaded (q4, ${(loadTime / 1000).toFixed(1)}s, ctx: ${contextWindow})`);
+            this.emitEvent('model_loaded', { modelId, quant: 'q4', loadTimeMs: loadTime, contextWindow });
             // Telemetry
             if (this.token) {
                 await axios.post(`${this.apiUrl}/api/telemetry`, {
@@ -375,7 +450,7 @@ class SlyOS {
                     event_type: 'model_load',
                     model_id: modelId,
                     success: true,
-                    metadata: { quant, loadTimeMs: loadTime, contextWindow },
+                    metadata: { quant: 'q4', loadTimeMs: loadTime, contextWindow, custom: !info },
                 }, {
                     headers: { Authorization: `Bearer ${this.token}` },
                 }).catch(() => { });
@@ -780,7 +855,13 @@ class SlyOS {
                 top_k: options.topK || 5,
                 model_id: options.modelId
             }, { headers: { Authorization: `Bearer ${this.token}` } });
-            const { retrieved_chunks, prompt_template, context } = searchResponse.data;
+            let { retrieved_chunks, prompt_template, context } = searchResponse.data;
+            // Apply context window limits
+            const contextWindow = this.modelContextWindow || 2048;
+            const maxContextChars = (contextWindow - 200) * 3; // Rough token-to-char ratio, reserving 200 tokens
+            if (context && context.length > maxContextChars) {
+                context = context.substring(0, maxContextChars) + '...';
+            }
             // Step 2: Generate response locally using the augmented prompt
             const response = await this.generate(options.modelId, prompt_template, {
                 temperature: options.temperature,
@@ -818,10 +899,14 @@ class SlyOS {
             if (!this.localEmbeddingModel) {
                 await this.loadEmbeddingModel();
             }
+            // Adapt chunk size based on context window for efficiency
+            const contextWindow = this.modelContextWindow || 2048;
+            const chunkSize = contextWindow <= 1024 ? 256 : contextWindow <= 2048 ? 512 : 1024;
+            const overlap = Math.floor(chunkSize / 4);
             // Step 2: Chunk documents if not already chunked
             const allChunks = [];
             for (const doc of options.documents) {
-                const chunks = this.chunkTextLocal(doc.content, 512, 128);
+                const chunks = this.chunkTextLocal(doc.content, chunkSize, overlap);
                 for (const chunk of chunks) {
                     const embedding = await this.embedTextLocal(chunk);
                     allChunks.push({ content: chunk, documentName: doc.name || 'Document', embedding });
@@ -838,8 +923,21 @@ class SlyOS {
             }))
                 .sort((a, b) => b.similarityScore - a.similarityScore)
                 .slice(0, options.topK || 5);
-            // Step 5: Build context
-            const context = scored.map(c => `[Source: ${c.documentName}]\n${c.content}`).join('\n\n---\n\n');
+            // Step 5: Build context with size limits
+            const maxContextChars = (contextWindow - 200) * 3; // Rough token-to-char ratio, reserving 200 tokens
+            let contextLength = 0;
+            const contextParts = [];
+            for (const c of scored) {
+                const part = `[Source: ${c.documentName}]\n${c.content}`;
+                if (contextLength + part.length <= maxContextChars) {
+                    contextParts.push(part);
+                    contextLength += part.length + 10; // Account for separator
+                }
+                else {
+                    break;
+                }
+            }
+            const context = contextParts.join('\n\n---\n\n');
             const prompt = `You are a helpful assistant. Answer based ONLY on the following context:\n\n${context}\n\nQuestion: ${options.query}\n\nAnswer:`;
             // Step 6: Generate locally
             const response = await this.generate(options.modelId, prompt, {
@@ -897,8 +995,22 @@ class SlyOS {
             }))
                 .sort((a, b) => b.similarityScore - a.similarityScore)
                 .slice(0, options.topK || 5);
-            // Build context
-            const context = scored.map(c => `[Source: ${c.document_name}]\n${c.content}`).join('\n\n---\n\n');
+            // Build context with size limits
+            const contextWindow = this.modelContextWindow || 2048;
+            const maxContextChars = (contextWindow - 200) * 3; // Rough token-to-char ratio, reserving 200 tokens
+            let contextLength = 0;
+            const contextParts = [];
+            for (const c of scored) {
+                const part = `[Source: ${c.document_name}]\n${c.content}`;
+                if (contextLength + part.length <= maxContextChars) {
+                    contextParts.push(part);
+                    contextLength += part.length + 10; // Account for separator
+                }
+                else {
+                    break;
+                }
+            }
+            const context = contextParts.join('\n\n---\n\n');
             const prompt = `You are a helpful assistant. Answer based ONLY on the following context:\n\n${context}\n\nQuestion: ${options.query}\n\nAnswer:`;
             // Generate locally
             const response = await this.generate(options.modelId, prompt, {
