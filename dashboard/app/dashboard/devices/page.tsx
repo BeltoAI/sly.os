@@ -4,7 +4,7 @@ import { getDevices, toggleDevice, removeDevice } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import {
   Smartphone, Monitor, Globe, Cpu, Activity, Clock,
-  Power, PowerOff, Trash2, AlertTriangle, X, Check, Shield
+  Power, PowerOff, Trash2, AlertTriangle, X, Check
 } from 'lucide-react';
 
 export default function DevicesPage() {
@@ -55,7 +55,6 @@ export default function DevicesPage() {
 
   const enabledCount = devices.filter(d => d.enabled !== false).length;
   const disabledCount = devices.filter(d => d.enabled === false).length;
-  const billableCount = enabledCount;
 
   const platformIcon = (platform: string) => {
     const iconClass = "w-4 h-4";
@@ -96,30 +95,6 @@ export default function DevicesPage() {
         </div>
       )}
 
-      {/* Billing Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="backdrop-blur-xl bg-[#0A0A0A]/80 border border-[rgba(255,255,255,0.08)] rounded-xl p-4">
-          <p className="text-[10px] text-[#555555] uppercase tracking-wider font-semibold mb-1">Enabled Devices</p>
-          <p className="text-2xl font-bold text-[#EDEDED]">{enabledCount}</p>
-        </div>
-        <div className="backdrop-blur-xl bg-[#0A0A0A]/80 border border-[rgba(255,255,255,0.08)] rounded-xl p-4">
-          <div className="flex items-center gap-1.5 mb-1">
-            <Shield className="w-3 h-3 text-[#FF4D00]" />
-            <p className="text-[10px] text-[#555555] uppercase tracking-wider font-semibold">Billing</p>
-          </div>
-          <p className="text-2xl font-bold text-[#EDEDED]">All Devices</p>
-        </div>
-        <div className="backdrop-blur-xl bg-[#0A0A0A]/80 border border-[rgba(255,255,255,0.08)] rounded-xl p-4">
-          <p className="text-[10px] text-[#555555] uppercase tracking-wider font-semibold mb-1">Monthly Cost*</p>
-          <p className="text-2xl font-bold text-[#EDEDED]">
-            ${(billableCount * 0.15).toFixed(2)}-${(billableCount * 0.45).toFixed(2)}
-            <span className="text-sm font-normal text-[#555555] ml-1">
-              {billableCount > 0 ? `${billableCount} device${billableCount !== 1 ? 's' : ''}` : 'none'}
-            </span>
-          </p>
-        </div>
-      </div>
-
       {/* Device Table */}
       <div className="backdrop-blur-xl bg-[#0A0A0A]/80 border border-[rgba(255,255,255,0.08)] rounded-2xl overflow-hidden shadow-2xl">
         <div className="overflow-x-auto">
@@ -139,7 +114,6 @@ export default function DevicesPage() {
             <tbody>
               {devices.map((device, index) => {
                 const isEnabled = device.enabled !== false;
-                const isFirstEnabled = index === devices.findIndex(d => d.enabled !== false);
                 return (
                   <tr key={device.id} className={`border-b border-[rgba(255,255,255,0.04)] transition-colors duration-200 ${
                     !isEnabled ? 'opacity-50' : 'hover:bg-[rgba(255,255,255,0.02)]'
@@ -238,9 +212,8 @@ export default function DevicesPage() {
       {/* Info box */}
       <div className="mt-6 p-4 bg-[rgba(255,77,0,0.03)] border border-[rgba(255,77,0,0.12)] rounded-xl">
         <p className="text-xs text-[#888888]">
-          <span className="text-[#EDEDED] font-semibold">How billing works:</span> All enabled devices are billable based on your plan
-          ($0.15/device/month for Pure Edge, $0.45/device/month for Hybrid RAG). Disabling a device stops its SDK access and removes it from billing.
-          Removing a device deletes it permanently. <span className="text-[#FF4D00]">*See your billing page to view exact costs based on your plan.</span>
+          <span className="text-[#EDEDED] font-semibold">Device management:</span> Disabling a device revokes SDK access and removes it from billing.
+          Removing a device deletes it permanently. Manage your plan and billing in <a href="/dashboard/settings?tab=billing" className="text-[#FF4D00] hover:underline">Settings</a>.
         </p>
       </div>
     </div>
