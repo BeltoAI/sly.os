@@ -100,6 +100,186 @@ async function detectContextWindowFromHF(hfModelId) {
         return 2048;
     }
 }
+// ─── SDK Version ────────────────────────────────────────────────────
+const SDK_VERSION = '1.4.0';
+// ─── Persistent Device Identity ─────────────────────────────────────
+async function hashString(str) {
+    const isNode = typeof window === 'undefined';
+    if (isNode) {
+        const crypto = await import('crypto');
+        return crypto.createHash('sha256').update(str).digest('hex').substring(0, 32);
+    }
+    else {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(str);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        return Array.from(new Uint8Array(hashBuffer))
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('')
+            .substring(0, 32);
+    }
+}
+async function getOrCreateDeviceId() {
+    const isNode = typeof window === 'undefined';
+    if (isNode) {
+        // Node.js: persist in ~/.slyos/device-id
+        try {
+            const fs = await import('fs');
+            const path = await import('path');
+            const os = await import('os');
+            const slyosDir = path.join(os.homedir(), '.slyos');
+            const idFile = path.join(slyosDir, 'device-id');
+            try {
+                const existing = fs.readFileSync(idFile, 'utf-8').trim();
+                if (existing)
+                    return existing;
+            }
+            catch { }
+            const deviceId = `device-${Date.now()}-${Math.random().toString(36).substr(2, 12)}`;
+            fs.mkdirSync(slyosDir, { recursive: true });
+            fs.writeFileSync(idFile, deviceId);
+            return deviceId;
+        }
+        catch {
+            return `device-${Date.now()}-${Math.random().toString(36).substr(2, 12)}`;
+        }
+    }
+    else {
+        // Browser: persist in localStorage
+        const key = 'slyos_device_id';
+        try {
+            const existing = localStorage.getItem(key);
+            if (existing)
+                return existing;
+        }
+        catch { }
+        const deviceId = `device-${Date.now()}-${Math.random().toString(36).substr(2, 12)}`;
+        try {
+            localStorage.setItem(key, deviceId);
+        }
+        catch { }
+        return deviceId;
+    }
+}
+async function generateDeviceFingerprint() {
+    const isNode = typeof window === 'undefined';
+    let components = [];
+    if (isNode) {
+        try {
+            const os = await import('os');
+            const cpus = os.cpus();
+            components.push(cpus[0]?.model || 'unknown-cpu');
+            components.push(String(os.totalmem()));
+            components.push(os.platform());
+            components.push(os.arch());
+            components.push(String(cpus.length));
+        }
+        catch { }
+    }
+    else {
+        components.push(String(navigator.hardwareConcurrency || 0));
+        components.push(String(navigator.deviceMemory || 0));
+        components.push(navigator.platform || 'unknown');
+        // WebGL renderer for GPU fingerprint
+        try {
+            const canvas = document.createElement('canvas');
+            const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+            if (gl) {
+                const ext = gl.getExtension('WEBGL_debug_renderer_info');
+                if (ext) {
+                    components.push(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || 'unknown-gpu');
+                }
+            }
+        }
+        catch { }
+        components.push(String(screen.width || 0));
+        components.push(String(screen.height || 0));
+    }
+    return await hashString(components.join('|'));
+}
+// ─── Enhanced Device Profiling ──────────────────────────────────────
+function detectGPU() {
+    if (typeof window === 'undefined')
+        return { renderer: null, vramMb: 0 };
+    try {
+        const canvas = document.createElement('canvas');
+        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+        if (!gl)
+            return { renderer: null, vramMb: 0 };
+        const ext = gl.getExtension('WEBGL_debug_renderer_info');
+        const renderer = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : null;
+        // Rough VRAM estimate from renderer string
+        let vramMb = 0;
+        if (renderer) {
+            const match = renderer.match(/(\d+)\s*MB/i);
+            if (match)
+                vramMb = parseInt(match[1]);
+            else if (/RTX\s*40/i.test(renderer))
+                vramMb = 8192;
+            else if (/RTX\s*30/i.test(renderer))
+                vramMb = 6144;
+            else if (/GTX/i.test(renderer))
+                vramMb = 4096;
+            else if (/Apple M[2-4]/i.test(renderer))
+                vramMb = 8192;
+            else if (/Apple M1/i.test(renderer))
+                vramMb = 4096;
+            else if (/Intel/i.test(renderer))
+                vramMb = 1024;
+        }
+        return { renderer, vramMb };
+    }
+    catch {
+        return { renderer: null, vramMb: 0 };
+    }
+}
+function detectBrowser() {
+    if (typeof window === 'undefined' || typeof navigator === 'undefined')
+        return { name: 'node', version: process.version || 'unknown' };
+    const ua = navigator.userAgent;
+    if (/Edg\//i.test(ua)) {
+        const m = ua.match(/Edg\/([\d.]+)/);
+        return { name: 'Edge', version: m?.[1] || '' };
+    }
+    if (/Chrome\//i.test(ua)) {
+        const m = ua.match(/Chrome\/([\d.]+)/);
+        return { name: 'Chrome', version: m?.[1] || '' };
+    }
+    if (/Firefox\//i.test(ua)) {
+        const m = ua.match(/Firefox\/([\d.]+)/);
+        return { name: 'Firefox', version: m?.[1] || '' };
+    }
+    if (/Safari\//i.test(ua)) {
+        const m = ua.match(/Version\/([\d.]+)/);
+        return { name: 'Safari', version: m?.[1] || '' };
+    }
+    return { name: 'unknown', version: '' };
+}
+function detectNetworkType() {
+    if (typeof navigator === 'undefined')
+        return 'unknown';
+    const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (!conn)
+        return 'unknown';
+    return conn.effectiveType || conn.type || 'unknown';
+}
+async function measureApiLatency(apiUrl) {
+    try {
+        const start = Date.now();
+        await axios.head(`${apiUrl}/api/health`, { timeout: 5000 });
+        return Date.now() - start;
+    }
+    catch {
+        try {
+            const start = Date.now();
+            await axios.get(`${apiUrl}/api/health`, { timeout: 5000 });
+            return Date.now() - start;
+        }
+        catch {
+            return -1;
+        }
+    }
+}
 // ─── Device Profiling ───────────────────────────────────────────────
 async function profileDevice() {
     const isNode = typeof window === 'undefined';
@@ -151,6 +331,29 @@ async function profileDevice() {
     }
     const recommendedQuant = selectQuantization(memoryMB, 'quantum-1.7b'); // default baseline
     const maxContextWindow = recommendContextWindow(memoryMB, recommendedQuant);
+    // Enhanced profiling
+    const gpu = detectGPU();
+    const browser = detectBrowser();
+    const networkType = detectNetworkType();
+    const timezone = Intl?.DateTimeFormat?.()?.resolvedOptions?.()?.timeZone || 'unknown';
+    let screenWidth = 0, screenHeight = 0, pixelRatio = 0;
+    let wasmAvailable = false, webgpuAvailable = false;
+    if (!isNode) {
+        screenWidth = screen?.width || 0;
+        screenHeight = screen?.height || 0;
+        pixelRatio = window?.devicePixelRatio || 1;
+    }
+    // Capability detection
+    try {
+        wasmAvailable = typeof WebAssembly !== 'undefined';
+    }
+    catch { }
+    if (!isNode) {
+        try {
+            webgpuAvailable = !!navigator.gpu;
+        }
+        catch { }
+    }
     return {
         cpuCores,
         memoryMB,
@@ -159,15 +362,28 @@ async function profileDevice() {
         os,
         recommendedQuant,
         maxContextWindow,
+        gpuRenderer: gpu.renderer || undefined,
+        gpuVramMb: gpu.vramMb || undefined,
+        screenWidth: screenWidth || undefined,
+        screenHeight: screenHeight || undefined,
+        pixelRatio: pixelRatio || undefined,
+        browserName: browser.name,
+        browserVersion: browser.version,
+        networkType,
+        timezone,
+        wasmAvailable,
+        webgpuAvailable,
     };
 }
-// ─── Main SDK Class ─────────────────────────────────────────────────
 class SlyOS {
     constructor(config) {
         this.token = null;
         this.models = new Map();
         this.deviceProfile = null;
         this.modelContextWindow = 0;
+        // Telemetry batching
+        this.telemetryBuffer = [];
+        this.telemetryFlushTimer = null;
         // ═══════════════════════════════════════════════════════════
         // RAG — Retrieval Augmented Generation
         // ═══════════════════════════════════════════════════════════
@@ -175,7 +391,7 @@ class SlyOS {
         this.offlineIndexes = new Map();
         this.apiKey = config.apiKey;
         this.apiUrl = config.apiUrl || 'https://api.slyos.world';
-        this.deviceId = `device-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        this.deviceId = ''; // Set asynchronously in initialize()
         this.onProgress = config.onProgress || null;
         this.onEvent = config.onEvent || null;
         this.fallbackConfig = config.fallback || null;
@@ -191,6 +407,44 @@ class SlyOS {
             this.onEvent({ type, data, timestamp: Date.now() });
         }
     }
+    // ── Telemetry Batching ─────────────────────────────────────────
+    recordTelemetry(entry) {
+        this.telemetryBuffer.push(entry);
+        if (this.telemetryBuffer.length >= SlyOS.TELEMETRY_BATCH_SIZE) {
+            this.flushTelemetry();
+        }
+        else if (!this.telemetryFlushTimer) {
+            this.telemetryFlushTimer = setTimeout(() => this.flushTelemetry(), SlyOS.TELEMETRY_FLUSH_INTERVAL);
+        }
+    }
+    async flushTelemetry() {
+        if (this.telemetryFlushTimer) {
+            clearTimeout(this.telemetryFlushTimer);
+            this.telemetryFlushTimer = null;
+        }
+        if (this.telemetryBuffer.length === 0 || !this.token)
+            return;
+        const batch = [...this.telemetryBuffer];
+        this.telemetryBuffer = [];
+        try {
+            await axios.post(`${this.apiUrl}/api/devices/telemetry`, {
+                device_id: this.deviceId,
+                metrics: batch,
+            }, {
+                headers: { Authorization: `Bearer ${this.token}` },
+                timeout: 10000,
+            });
+            this.emitEvent('telemetry_flushed', { count: batch.length });
+        }
+        catch {
+            // Put back on failure for next attempt
+            this.telemetryBuffer.unshift(...batch);
+            // Cap buffer to prevent memory leak
+            if (this.telemetryBuffer.length > 100) {
+                this.telemetryBuffer = this.telemetryBuffer.slice(-100);
+            }
+        }
+    }
     // ── Device Analysis ─────────────────────────────────────────────
     async analyzeDevice() {
         this.emitProgress('profiling', 10, 'Analyzing device capabilities...');
@@ -204,6 +458,20 @@ class SlyOS {
     }
     getModelContextWindow() {
         return this.modelContextWindow;
+    }
+    getDeviceId() {
+        return this.deviceId;
+    }
+    getSdkVersion() {
+        return SDK_VERSION;
+    }
+    // Flush remaining telemetry and clean up timers
+    async destroy() {
+        await this.flushTelemetry();
+        if (this.telemetryFlushTimer) {
+            clearTimeout(this.telemetryFlushTimer);
+            this.telemetryFlushTimer = null;
+        }
     }
     // ── Smart Model Recommendation ──────────────────────────────────
     recommendModel(category = 'llm') {
@@ -240,12 +508,16 @@ class SlyOS {
     // ── Initialize ──────────────────────────────────────────────────
     async initialize() {
         this.emitProgress('initializing', 0, 'Starting SlyOS...');
-        // Step 1: Profile device
+        // Step 1: Persistent device ID
+        this.deviceId = await getOrCreateDeviceId();
+        // Step 2: Profile device (enhanced)
         this.emitProgress('profiling', 5, 'Detecting device capabilities...');
         this.deviceProfile = await profileDevice();
-        this.emitProgress('profiling', 20, `Detected: ${this.deviceProfile.cpuCores} CPU cores, ${Math.round(this.deviceProfile.memoryMB / 1024 * 10) / 10}GB RAM, ${Math.round(this.deviceProfile.estimatedStorageMB / 1024)}GB storage`);
+        // Step 2b: Generate device fingerprint
+        this.deviceProfile.deviceFingerprint = await generateDeviceFingerprint();
+        this.emitProgress('profiling', 20, `Detected: ${this.deviceProfile.cpuCores} CPU cores, ${Math.round(this.deviceProfile.memoryMB / 1024 * 10) / 10}GB RAM${this.deviceProfile.gpuRenderer ? ', GPU: ' + this.deviceProfile.gpuRenderer.substring(0, 30) : ''}`);
         this.emitEvent('device_profiled', this.deviceProfile);
-        // Step 2: Authenticate
+        // Step 3: Authenticate
         this.emitProgress('initializing', 40, 'Authenticating with API key...');
         try {
             const authRes = await axios.post(`${this.apiUrl}/api/auth/sdk`, {
@@ -260,29 +532,65 @@ class SlyOS {
             this.emitEvent('error', { stage: 'auth', error: err.message });
             throw new Error(`SlyOS auth failed: ${err.response?.data?.error || err.message}`);
         }
-        // Step 3: Register device with real specs
+        // Step 4: Measure API latency
+        const latency = await measureApiLatency(this.apiUrl);
+        if (latency > 0)
+            this.deviceProfile.latencyToApiMs = latency;
+        // Step 5: Register device with full intelligence profile
         this.emitProgress('initializing', 70, 'Registering device...');
         try {
+            // Determine supported quantizations based on memory
+            const mem = this.deviceProfile.memoryMB;
+            const supportedQuants = ['q4'];
+            if (mem >= 4096)
+                supportedQuants.push('q8');
+            if (mem >= 8192)
+                supportedQuants.push('fp16');
+            if (mem >= 16384)
+                supportedQuants.push('fp32');
+            // Determine recommended tier
+            let recommendedTier = 1;
+            if (mem >= 8192 && this.deviceProfile.cpuCores >= 4)
+                recommendedTier = 2;
+            if (mem >= 16384 && this.deviceProfile.cpuCores >= 8)
+                recommendedTier = 3;
             await axios.post(`${this.apiUrl}/api/devices/register`, {
                 device_id: this.deviceId,
+                device_fingerprint: this.deviceProfile.deviceFingerprint,
                 platform: this.deviceProfile.platform,
                 os_version: this.deviceProfile.os,
                 total_memory_mb: this.deviceProfile.memoryMB,
                 cpu_cores: this.deviceProfile.cpuCores,
-                has_gpu: false,
-                recommended_quant: this.deviceProfile.recommendedQuant,
-                max_context_window: this.deviceProfile.maxContextWindow,
+                // Enhanced fields
+                gpu_renderer: this.deviceProfile.gpuRenderer || null,
+                gpu_vram_mb: this.deviceProfile.gpuVramMb || null,
+                screen_width: this.deviceProfile.screenWidth || null,
+                screen_height: this.deviceProfile.screenHeight || null,
+                pixel_ratio: this.deviceProfile.pixelRatio || null,
+                browser_name: this.deviceProfile.browserName || null,
+                browser_version: this.deviceProfile.browserVersion || null,
+                sdk_version: SDK_VERSION,
+                network_type: this.deviceProfile.networkType || null,
+                latency_to_api_ms: this.deviceProfile.latencyToApiMs || null,
+                timezone: this.deviceProfile.timezone || null,
+                // Capabilities
+                wasm_available: this.deviceProfile.wasmAvailable || false,
+                webgpu_available: this.deviceProfile.webgpuAvailable || false,
+                supported_quants: supportedQuants,
+                recommended_tier: recommendedTier,
             }, {
                 headers: { Authorization: `Bearer ${this.token}` },
             });
             this.emitProgress('initializing', 90, 'Device registered');
-            this.emitEvent('device_registered', { deviceId: this.deviceId });
+            this.emitEvent('device_registered', { deviceId: this.deviceId, fingerprint: this.deviceProfile.deviceFingerprint });
         }
         catch (err) {
             // Non-fatal — device registration shouldn't block usage
             this.emitProgress('initializing', 90, 'Device registration skipped (non-fatal)');
         }
-        this.emitProgress('ready', 100, `SlyOS ready — recommended quantization: ${this.deviceProfile.recommendedQuant.toUpperCase()}`);
+        // Step 6: Start telemetry flush timer
+        this.telemetryFlushTimer = setTimeout(() => this.flushTelemetry(), SlyOS.TELEMETRY_FLUSH_INTERVAL);
+        this.emitProgress('ready', 100, `SlyOS v${SDK_VERSION} ready — ${this.deviceProfile.recommendedQuant.toUpperCase()}, ${this.deviceProfile.gpuRenderer ? 'GPU detected' : 'CPU only'}`);
         return this.deviceProfile;
     }
     // ── Model Loading ───────────────────────────────────────────────
@@ -504,6 +812,15 @@ class SlyOS {
             const tokensPerSec = (tokensGenerated / (latency / 1000)).toFixed(1);
             this.emitProgress('ready', 100, `Generated ${tokensGenerated} tokens in ${(latency / 1000).toFixed(1)}s (${tokensPerSec} tok/s)`);
             this.emitEvent('inference_complete', { modelId, latencyMs: latency, tokensGenerated, tokensPerSec: parseFloat(tokensPerSec) });
+            // Batch telemetry (new device intelligence)
+            this.recordTelemetry({
+                latency_ms: latency,
+                tokens_generated: tokensGenerated,
+                success: true,
+                model_id: modelId,
+                timestamp: Date.now(),
+            });
+            // Legacy telemetry (backwards compatible)
             if (this.token) {
                 await axios.post(`${this.apiUrl}/api/telemetry`, {
                     device_id: this.deviceId,
@@ -521,6 +838,14 @@ class SlyOS {
         catch (error) {
             this.emitProgress('error', 0, `Generation failed: ${error.message}`);
             this.emitEvent('error', { stage: 'inference', modelId, error: error.message });
+            // Batch telemetry (failure)
+            this.recordTelemetry({
+                latency_ms: 0,
+                tokens_generated: 0,
+                success: false,
+                model_id: modelId,
+                timestamp: Date.now(),
+            });
             if (this.token) {
                 await axios.post(`${this.apiUrl}/api/telemetry`, {
                     device_id: this.deviceId,
@@ -1137,4 +1462,6 @@ class SlyOS {
         };
     }
 }
+SlyOS.TELEMETRY_BATCH_SIZE = 10;
+SlyOS.TELEMETRY_FLUSH_INTERVAL = 60000; // 60 seconds
 export default SlyOS;

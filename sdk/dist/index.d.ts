@@ -23,6 +23,19 @@ interface DeviceProfile {
     os: string;
     recommendedQuant: QuantizationLevel;
     maxContextWindow: number;
+    deviceFingerprint?: string;
+    gpuRenderer?: string;
+    gpuVramMb?: number;
+    screenWidth?: number;
+    screenHeight?: number;
+    pixelRatio?: number;
+    browserName?: string;
+    browserVersion?: string;
+    networkType?: string;
+    latencyToApiMs?: number;
+    timezone?: string;
+    wasmAvailable?: boolean;
+    webgpuAvailable?: boolean;
 }
 interface ProgressEvent {
     stage: 'initializing' | 'profiling' | 'downloading' | 'loading' | 'ready' | 'generating' | 'transcribing' | 'error';
@@ -31,7 +44,7 @@ interface ProgressEvent {
     detail?: any;
 }
 interface SlyEvent {
-    type: 'auth' | 'device_registered' | 'device_profiled' | 'model_download_start' | 'model_download_progress' | 'model_loaded' | 'inference_start' | 'inference_complete' | 'error' | 'fallback_success' | 'fallback_error';
+    type: 'auth' | 'device_registered' | 'device_profiled' | 'model_download_start' | 'model_download_progress' | 'model_loaded' | 'inference_start' | 'inference_complete' | 'error' | 'fallback_success' | 'fallback_error' | 'telemetry_flushed';
     data?: any;
     timestamp: number;
 }
@@ -162,12 +175,21 @@ declare class SlyOS {
     private onEvent;
     private fallbackConfig;
     private modelContextWindow;
+    private telemetryBuffer;
+    private telemetryFlushTimer;
+    private static readonly TELEMETRY_BATCH_SIZE;
+    private static readonly TELEMETRY_FLUSH_INTERVAL;
     constructor(config: SlyOSConfigWithFallback);
     private emitProgress;
     private emitEvent;
+    private recordTelemetry;
+    private flushTelemetry;
     analyzeDevice(): Promise<DeviceProfile>;
     getDeviceProfile(): DeviceProfile | null;
     getModelContextWindow(): number;
+    getDeviceId(): string;
+    getSdkVersion(): string;
+    destroy(): Promise<void>;
     recommendModel(category?: ModelCategory): {
         modelId: string;
         quant: QuantizationLevel;
