@@ -67,7 +67,7 @@ Authenticates with SlyOS backend and registers device.
 await sdk.initialize();
 ```
 
-**Returns:** `Promise<void>`
+**Returns:** `Promise<DeviceProfile>`
 
 ---
 
@@ -221,11 +221,11 @@ const sdk = new SlyOS({
 ### Multiple Models
 ```javascript
 await sdk.loadModel('quantum-1.7b');
-await sdk.loadModel('quantum-1.7b');
+await sdk.loadModel('quantum-3b');
 
 // Use different models
 const fast = await sdk.generate('quantum-1.7b', 'Quick question?');
-const detailed = await sdk.generate('quantum-1.7b', 'Complex question?');
+const detailed = await sdk.generate('quantum-3b', 'Complex question?');
 ```
 
 ---
@@ -279,7 +279,7 @@ const detailed = await sdk.generate('quantum-1.7b', 'Complex question?');
 ## 📦 Package Info
 
 - **Package:** `@emilshirokikh/slyos-sdk`
-- **Version:** 1.0.0
+- **Version:** 1.4.0
 - **License:** MIT
 - **Size:** 13.5 KB (unpacked)
 - **Dependencies:** axios, @huggingface/transformers
@@ -289,8 +289,8 @@ const detailed = await sdk.generate('quantum-1.7b', 'Complex question?');
 ## 🤝 Contributing
 ```bash
 # Clone repo
-git clone https://github.com/BeltoAI/sly.git
-cd sly/sdk
+git clone https://github.com/BeltoAI/sly.os.git
+cd sly.os/sdk
 
 # Install dependencies
 npm install
@@ -321,6 +321,6 @@ Built with Hugging Face Transformers.js
 ## 📞 Support
 
 - **npm:** https://www.npmjs.com/package/@emilshirokikh/slyos-sdk
-- **GitHub:** https://github.com/BeltoAI/sly
+- **GitHub:** https://github.com/BeltoAI/sly.os
 - **Docs:** See main README.md
 - **Email:** support@slyos.world

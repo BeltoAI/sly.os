@@ -103,6 +103,27 @@ export const updateDeviceName = async (deviceId: string, name: string) => {
   return res.data;
 };
 
+// ── Ideas / Feature Requests ────────────────────────────────────
+export const getIdeas = async (sort: string = 'top', category: string = 'all') => {
+  const res = await api.get(`/ideas?sort=${sort}&category=${category}`);
+  return res.data;
+};
+
+export const createIdea = async (title: string, description: string, category: string = 'general') => {
+  const res = await api.post('/ideas', { title, description, category });
+  return res.data;
+};
+
+export const voteIdea = async (ideaId: string, vote: number) => {
+  const res = await api.post(`/ideas/${ideaId}/vote`, { vote });
+  return res.data;
+};
+
+export const deleteIdea = async (ideaId: string) => {
+  const res = await api.delete(`/ideas/${ideaId}`);
+  return res.data;
+};
+
 export const getModels = async () => {
   const res = await api.get('/models');
   return res.data;

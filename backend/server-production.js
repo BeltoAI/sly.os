@@ -344,6 +344,48 @@ db.query(`
   console.log('✅ Device intelligence indexes created');
 }).catch((err) => { console.log('Device intelligence indexes note:', err.message); });
 
+// ─── Ideas / Feature Request System ─────────────────────────────────
+db.query(`
+  CREATE TABLE IF NOT EXISTS ideas (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id),
+    author_id UUID NOT NULL,
+    author_name VARCHAR(255) NOT NULL,
+    author_email VARCHAR(255),
+    title VARCHAR(255) NOT NULL,
+    description TEXT NOT NULL,
+    category VARCHAR(50) DEFAULT 'general',
+    vote_count INTEGER DEFAULT 0,
+    status VARCHAR(30) DEFAULT 'open',
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+  )
+`).then(() => {
+  console.log('✅ Ideas table initialized');
+}).catch((err) => { console.log('Ideas table note:', err.message); });
+
+db.query(`
+  CREATE TABLE IF NOT EXISTS idea_votes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    idea_id UUID NOT NULL REFERENCES ideas(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL,
+    vote INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(idea_id, user_id)
+  )
+`).then(() => {
+  console.log('✅ Idea votes table initialized');
+}).catch((err) => { console.log('Idea votes table note:', err.message); });
+
+db.query(`
+  CREATE INDEX IF NOT EXISTS idx_ideas_vote_count ON ideas(vote_count DESC);
+  CREATE INDEX IF NOT EXISTS idx_ideas_created ON ideas(created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_idea_votes_idea ON idea_votes(idea_id);
+  CREATE INDEX IF NOT EXISTS idx_idea_votes_user ON idea_votes(user_id);
+`).then(() => {
+  console.log('✅ Ideas indexes created');
+}).catch((err) => { console.log('Ideas indexes note:', err.message); });
+
 // CORS - production-ready
 const allowedOrigins = process.env.CORS_ORIGIN ?
   process.env.CORS_ORIGIN.split(',') :
@@ -1307,15 +1349,15 @@ app.get('/api/devices/:deviceId/score', authenticate, async (req, res) => {
 // Get device metrics (hourly data for charts)
 app.get('/api/devices/:deviceId/metrics', authenticate, async (req, res) => {
   const { deviceId } = req.params;
-  const days = parseInt(req.query.days) || 7;
+  const days = Math.max(1, Math.min(parseInt(req.query.days) || 7, 365));
   try {
     const result = await db.query(`
       SELECT metric_hour, inference_count, total_tokens, avg_latency_ms, success_count, error_count
       FROM device_metrics
       WHERE device_id = $1 AND organization_id = $2
-        AND metric_hour >= NOW() - INTERVAL '${days} days'
+        AND metric_hour >= NOW() - MAKE_INTERVAL(days => $3)
       ORDER BY metric_hour ASC
-    `, [deviceId, req.user.org_id]);
+    `, [deviceId, req.user.org_id, days]);
 
     res.json(result.rows);
   } catch (err) {
@@ -1368,6 +1410,126 @@ app.get('/api/devices/:deviceId/details', authenticate, async (req, res) => {
   } catch (err) {
     console.error('Device details error:', err);
     res.status(500).json({ error: 'Failed to fetch device details' });
+  }
+});
+
+// ─── Ideas / Feature Request Endpoints ──────────────────────────────
+
+// List all ideas (sorted by votes or newest)
+app.get('/api/ideas', authenticate, async (req, res) => {
+  const sort = req.query.sort === 'newest' ? 'i.created_at DESC' : 'i.vote_count DESC, i.created_at DESC';
+  const category = req.query.category;
+  try {
+    let query = `
+      SELECT i.*,
+        COALESCE((SELECT vote FROM idea_votes WHERE idea_id = i.id AND user_id = $1), 0) as user_vote
+      FROM ideas i
+    `;
+    const params = [req.user.userId];
+    let paramIdx = 2;
+
+    if (category && category !== 'all') {
+      query += ` WHERE i.category = $${paramIdx}`;
+      params.push(category);
+      paramIdx++;
+    }
+
+    query += ` ORDER BY ${sort} LIMIT 200`;
+    const result = await db.query(query, params);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Ideas list error:', err);
+    res.status(500).json({ error: 'Failed to fetch ideas' });
+  }
+});
+
+// Create a new idea
+app.post('/api/ideas', authenticate, async (req, res) => {
+  const { title, description, category } = req.body;
+  if (!title || !description) {
+    return res.status(400).json({ error: 'Title and description are required' });
+  }
+  if (title.length > 255) {
+    return res.status(400).json({ error: 'Title must be under 255 characters' });
+  }
+  if (description.length > 5000) {
+    return res.status(400).json({ error: 'Description must be under 5000 characters' });
+  }
+
+  try {
+    // Get user name
+    const userResult = await db.query('SELECT name, email FROM users WHERE id = $1', [req.user.userId]);
+    const userName = userResult.rows[0]?.name || 'Anonymous';
+    const userEmail = userResult.rows[0]?.email || null;
+
+    const result = await db.query(`
+      INSERT INTO ideas (organization_id, author_id, author_name, author_email, title, description, category, vote_count)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, 1)
+      RETURNING *
+    `, [req.user.org_id, req.user.userId, userName, userEmail, title.trim(), description.trim(), category || 'general']);
+
+    // Auto-upvote own idea
+    await db.query(`
+      INSERT INTO idea_votes (idea_id, user_id, vote) VALUES ($1, $2, 1) ON CONFLICT DO NOTHING
+    `, [result.rows[0].id, req.user.userId]);
+
+    res.json({ ...result.rows[0], user_vote: 1 });
+  } catch (err) {
+    console.error('Create idea error:', err);
+    res.status(500).json({ error: 'Failed to create idea' });
+  }
+});
+
+// Vote on an idea (upvote = 1, remove vote = 0)
+app.post('/api/ideas/:ideaId/vote', authenticate, async (req, res) => {
+  const { ideaId } = req.params;
+  const { vote } = req.body; // 1 = upvote, 0 = remove
+  if (vote !== 0 && vote !== 1) {
+    return res.status(400).json({ error: 'Vote must be 0 or 1' });
+  }
+
+  try {
+    if (vote === 1) {
+      // Upvote
+      await db.query(`
+        INSERT INTO idea_votes (idea_id, user_id, vote) VALUES ($1, $2, 1)
+        ON CONFLICT (idea_id, user_id) DO UPDATE SET vote = 1
+      `, [ideaId, req.user.userId]);
+    } else {
+      // Remove vote
+      await db.query('DELETE FROM idea_votes WHERE idea_id = $1 AND user_id = $2', [ideaId, req.user.userId]);
+    }
+
+    // Recount votes
+    const countResult = await db.query(
+      'SELECT COALESCE(SUM(vote), 0) as total FROM idea_votes WHERE idea_id = $1',
+      [ideaId]
+    );
+    const newCount = parseInt(countResult.rows[0].total) || 0;
+    await db.query('UPDATE ideas SET vote_count = $1, updated_at = NOW() WHERE id = $2', [newCount, ideaId]);
+
+    res.json({ vote_count: newCount, user_vote: vote });
+  } catch (err) {
+    console.error('Vote error:', err);
+    res.status(500).json({ error: 'Failed to vote' });
+  }
+});
+
+// Delete own idea
+app.delete('/api/ideas/:ideaId', authenticate, async (req, res) => {
+  const { ideaId } = req.params;
+  try {
+    const result = await db.query(
+      'DELETE FROM ideas WHERE id = $1 AND author_id = $2 RETURNING id',
+      [ideaId, req.user.userId]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Idea not found or you are not the author' });
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete idea error:', err);
+    res.status(500).json({ error: 'Failed to delete idea' });
   }
 });
 
