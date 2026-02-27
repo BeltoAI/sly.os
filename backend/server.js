@@ -84,6 +84,20 @@ db.query(`
   ALTER TABLE organizations ADD COLUMN IF NOT EXISTS plan_type VARCHAR(50) DEFAULT 'trial';
 `).catch(() => {});
 
+// Rate limiting store (in-memory, resets on restart — good enough for single-instance)
+const rateLimitStore = new Map();
+function rateLimit(key, maxAttempts, windowMs) {
+  const now = Date.now();
+  const entry = rateLimitStore.get(key);
+  if (!entry || now - entry.start > windowMs) {
+    rateLimitStore.set(key, { start: now, count: 1 });
+    return false; // not limited
+  }
+  entry.count++;
+  if (entry.count > maxAttempts) return true; // limited
+  return false;
+}
+
 // Create discount_codes table
 db.query(`
   CREATE TABLE IF NOT EXISTS discount_codes (
@@ -598,20 +612,18 @@ async function checkBillingStatus(req, res, next) {
       return next();
     }
 
-    // No subscription: allow 100 free inferences, then prompt to subscribe
-    if (subscription_status !== 'active' && subscription_status !== 'trial') {
-      const currentCredits = parseInt(credits_balance) || 100;
-      if (currentCredits > 0) {
-        return next(); // Still have free credits
-      }
-      return res.status(402).json({
-        error: 'Free trial expired',
-        message: 'Your free trial has ended. Subscribe to SlyOS to continue using the platform.',
-        billing_url: '/dashboard/billing'
-      });
+    // Trial expired — update status in DB so it doesn't stay as 'trial' forever
+    if (subscription_status === 'trial' && trialExpired) {
+      await db.query("UPDATE organizations SET subscription_status = 'expired' WHERE id = $1 AND subscription_status = 'trial'", [req.user.org_id]).catch(() => {});
     }
 
-    next();
+    // No active subscription or trial — block access
+    return res.status(402).json({
+      error: 'Subscription required',
+      message: 'Your trial has ended. Subscribe to Pure Edge ($0.15/device/month) or Hybrid RAG ($0.45/device/month) to continue.',
+      billing_url: '/dashboard/settings?tab=billing',
+      plans: { pure_edge: '$0.15/device/month', hybrid_rag: '$0.45/device/month' }
+    });
   } catch (err) {
     console.error('Billing check error:', err);
     next();
@@ -720,11 +732,6 @@ app.post('/api/auth/google', async (req, res) => {
     );
     const user = userResult.rows[0];
 
-    // Add welcome bonus credits
-    await db.query(
-      'INSERT INTO credit_ledger (organization_id, amount, reason) VALUES ($1, $2, $3)',
-      [org.id, 100, 'Welcome bonus — 100 free credits']
-    ).catch(() => {});
 
     const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
     res.status(201).json({
@@ -737,10 +744,17 @@ app.post('/api/auth/google', async (req, res) => {
   }
 });
 
-// Forgot Password - sends reset link via email
+// Forgot Password - sends reset link via email (rate limited: 5 per 15 min per email)
 app.post('/api/auth/forgot-password', async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'Email is required' });
+
+  // Rate limit: 5 attempts per email per 15 minutes
+  const rlKey = `reset:${email.toLowerCase().trim()}`;
+  if (rateLimit(rlKey, 5, 15 * 60 * 1000)) {
+    return res.status(429).json({ error: 'Too many reset requests. Please try again in 15 minutes.' });
+  }
+
   try {
     const user = await db.query('SELECT id, name, email FROM users WHERE email = $1', [email]);
     if (user.rows.length === 0) {
@@ -855,11 +869,6 @@ app.post('/api/auth/register', async (req, res) => {
     );
     const user = userResult.rows[0];
 
-    // Add welcome bonus credits
-    await db.query(
-      'INSERT INTO credit_ledger (organization_id, amount, reason) VALUES ($1, $2, $3)',
-      [org.id, 100, 'Welcome bonus — 100 free credits']
-    ).catch(() => {});
 
     const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
 
@@ -1573,10 +1582,6 @@ app.get('/api/analytics/overview', authenticate, checkBillingStatus, async (req,
       WHERE organization_id = $1 AND event_type = 'inference' AND success = true
     `, [req.user.org_id]).catch(() => ({ rows: [{ total_inferences: 0, total_tokens: 0 }] }));
 
-    // Get credits balance
-    const orgResult = await db.query('SELECT credits_balance FROM organizations WHERE id = $1', [req.user.org_id]);
-    const creditsBalance = orgResult.rows[0]?.credits_balance || 100;
-
     const modelDist = await db.query(`SELECT m.name, COUNT(dm.device_id) as count FROM models m LEFT JOIN device_models dm ON m.id = dm.model_id LEFT JOIN devices d ON dm.device_id = d.id WHERE d.organization_id = $1 GROUP BY m.id`, [req.user.org_id]);
     const activity = await db.query(`SELECT DATE_TRUNC('hour', timestamp) as hour, COUNT(*) as events FROM telemetry_events WHERE organization_id = $1 AND timestamp > NOW() - INTERVAL '24 hours' GROUP BY hour ORDER BY hour DESC`, [req.user.org_id]);
 
@@ -1594,7 +1599,6 @@ app.get('/api/analytics/overview', authenticate, checkBillingStatus, async (req,
         total_inferences: parseInt(allTime.rows[0]?.total_inferences) || 0,
         total_tokens: totalTokensAllTime,
       },
-      credits_balance: creditsBalance,
       modelDistribution: modelDist.rows,
       recentActivity: activity.rows,
       costSavings: { tokensGenerated: totalTokensAllTime, estimatedCostSaved: parseFloat(estimatedSaved.toFixed(4)) }
@@ -1631,41 +1635,6 @@ app.post('/api/telemetry', authenticate, checkBillingStatus, async (req, res) =>
           total_inferences = analytics_daily.total_inferences + 1,
           total_tokens_generated = analytics_daily.total_tokens_generated + $2
       `, [req.user.org_id, tokens_generated || 0]).catch(() => {});
-
-      // Credits = free trial meter. Subscribers get unlimited inferences.
-      if (!isAdmin) {
-        const orgResult = await db.query('SELECT credits_balance, subscription_status FROM organizations WHERE id = $1', [req.user.org_id]);
-        if (orgResult.rows.length > 0) {
-          const org = orgResult.rows[0];
-
-          // Subscribers get unlimited inferences — no credit deduction
-          if (org.subscription_status === 'active') {
-            // No-op: active subscribers don't use credits
-          } else {
-            // Free tier: deduct 1 credit per inference
-            const currentBalance = org.credits_balance ?? 100;
-            if (currentBalance > 0) {
-              await db.query('UPDATE organizations SET credits_balance = GREATEST(credits_balance - 1, 0) WHERE id = $1', [req.user.org_id]);
-              await db.query('INSERT INTO credit_ledger (organization_id, amount, reason) VALUES ($1, $2, $3)', [req.user.org_id, -1, 'Inference usage']);
-            }
-            // When credits exhausted: still allow the inference but warn in response
-            // We NEVER hard-block. The SDK should still work — this is a soft nudge.
-          }
-        }
-      }
-    }
-
-    // Include credits warning if balance is low/exhausted (soft nudge, never blocks)
-    if (!isAdmin) {
-      const updatedOrg = await db.query('SELECT credits_balance, subscription_status FROM organizations WHERE id = $1', [req.user.org_id]).catch(() => ({ rows: [] }));
-      const bal = updatedOrg.rows[0]?.credits_balance ?? 100;
-      const isSub = updatedOrg.rows[0]?.subscription_status === 'active';
-      if (!isSub && bal <= 0) {
-        return res.json({ success: true, credits_exhausted: true, message: 'Your 100 free inferences are used up! Subscribe to Pure Edge ($0.15/device/month) or Hybrid RAG ($0.45/device/month) for unlimited.' });
-      }
-      if (!isSub && bal <= 10) {
-        return res.json({ success: true, credits_low: true, credits_remaining: bal, message: `Only ${bal} free inferences left. Subscribe to Pure Edge or Hybrid RAG for unlimited.` });
-      }
     }
 
     res.json({ success: true });
@@ -1929,55 +1898,34 @@ app.post('/api/billing/create-checkout', authenticate, async (req, res) => {
   }
 });
 
-// Credits endpoints
+// Subscription status endpoint (replaces old credits system)
 app.get('/api/credits/balance', authenticate, async (req, res) => {
   try {
     const orgResult = await db.query(
-      'SELECT credits_balance, subscription_status, plan_type FROM organizations WHERE id = $1',
+      'SELECT subscription_status, plan_type, trial_ends_at FROM organizations WHERE id = $1',
       [req.user.org_id]
     );
     if (orgResult.rows.length === 0) {
       return res.status(404).json({ error: 'Organization not found' });
     }
-    const creditsBalance = orgResult.rows[0].credits_balance || 100;
     const subscriptionStatus = orgResult.rows[0].subscription_status;
     const planType = orgResult.rows[0].plan_type || 'trial';
+    const trialEndsAt = orgResult.rows[0].trial_ends_at;
 
-    // Calculate totals from ledger
-    const ledgerResult = await db.query(`
-      SELECT
-        COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) as total_earned,
-        COALESCE(SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END), 0) as total_spent
-      FROM credit_ledger
-      WHERE organization_id = $1
-    `, [req.user.org_id]);
-
-    const ledger = ledgerResult.rows[0];
-    const totalEarned = parseInt(ledger.total_earned) || 0;
-    const totalSpent = parseInt(ledger.total_spent) || 0;
-
-    // Get last 20 ledger entries
-    const historyResult = await db.query(`
-      SELECT id, amount, reason, created_at
-      FROM credit_ledger
-      WHERE organization_id = $1
-      ORDER BY created_at DESC
-      LIMIT 20
-    `, [req.user.org_id]);
-
-    // Determine credit balance and how it works
-    let balance = creditsBalance;
+    let balance = 0;
     let isUnlimited = false;
     let howItWorks = '';
 
     if (subscriptionStatus === 'active' && (planType === 'pure_edge' || planType === 'hybrid_rag')) {
-      // Subscribers get unlimited inferences (no credit deduction)
       balance = 'unlimited';
       isUnlimited = true;
       howItWorks = `You have an active ${planType === 'pure_edge' ? 'Pure Edge' : 'Hybrid RAG'} subscription — unlimited inferences included.`;
+    } else if (subscriptionStatus === 'trial' && trialEndsAt && new Date(trialEndsAt) > new Date()) {
+      const daysLeft = Math.ceil((new Date(trialEndsAt) - new Date()) / (1000 * 60 * 60 * 24));
+      balance = 'trial';
+      howItWorks = `You're on a free trial with ${daysLeft} days remaining. Subscribe for uninterrupted access.`;
     } else {
-      // Trial or no subscription: 100 free inferences
-      howItWorks = `You have ${creditsBalance} of 100 free inferences remaining. Subscribe for unlimited.`;
+      howItWorks = 'Your trial has ended. Subscribe to Pure Edge ($0.15/device/month) or Hybrid RAG ($0.45/device/month) for unlimited inferences.';
     }
 
     res.json({
@@ -1985,31 +1933,12 @@ app.get('/api/credits/balance', authenticate, async (req, res) => {
       is_subscribed: isUnlimited,
       plan_type: planType,
       subscription_status: subscriptionStatus,
-      free_credits_total: 100,
-      total_earned: totalEarned,
-      total_spent: totalSpent,
-      credit_value: 0.01,
-      how_it_works: howItWorks,
-      history: historyResult.rows
+      how_it_works: howItWorks
     });
   } catch (err) {
-    console.error('Credits balance error:', err);
-    res.status(500).json({ error: 'Failed to fetch credits balance' });
+    console.error('Subscription status error:', err);
+    res.status(500).json({ error: 'Failed to fetch subscription status' });
   }
-});
-
-app.post('/api/credits/purchase', authenticate, async (req, res) => {
-  // No pay-per-inference. Credits are a free trial meter.
-  // When credits run out, users subscribe for unlimited inferences.
-  res.json({
-    message: 'SlyOS doesn\'t charge per inference. Your 100 free credits let you try the platform. Subscribe to Pure Edge ($0.15/device/month) or Hybrid RAG ($0.45/device/month) to get unlimited inferences.',
-    action: 'subscribe',
-    billing_url: '/dashboard/billing',
-    plans: [
-      { name: 'Pure Edge', price: '0.15/device/month', features: ['edge_inference', 'model_zoo', 'analytics'] },
-      { name: 'Hybrid RAG', price: '0.45/device/month', features: ['edge_inference', 'model_zoo', 'analytics', 'rag', 'vector_search'] }
-    ]
-  });
 });
 
 // API Key management
@@ -2057,12 +1986,11 @@ app.post('/api/widget/config', async (req, res) => {
     return res.status(400).json({ error: 'Widget ID required' });
   }
   try {
-    // For now, return a placeholder widget configuration
     res.json({
       widgetId,
       apiEndpoint: process.env.API_URL || 'http://localhost:3000',
-      models: ['quantum-7b', 'quantum-13b'],
-      defaultModel: 'quantum-7b',
+      models: ['quantum-1.7b', 'quantum-3b', 'quantum-7b'],
+      defaultModel: 'quantum-1.7b',
       theme: 'dark'
     });
   } catch (err) {
@@ -2078,17 +2006,25 @@ app.get('/api/widget/:orgApiKey/chat', async (req, res) => {
   }
   try {
     const orgResult = await db.query(
-      'SELECT id, name, api_key FROM organizations WHERE api_key = $1',
+      'SELECT id, name, api_key, subscription_status, trial_ends_at FROM organizations WHERE api_key = $1',
       [orgApiKey]
     );
     if (orgResult.rows.length === 0) {
       return res.status(401).json({ error: 'Invalid API key' });
     }
     const org = orgResult.rows[0];
+
+    // Check billing — must be active or in trial
+    const isActive = org.subscription_status === 'active';
+    const isTrialActive = org.subscription_status === 'trial' && org.trial_ends_at && new Date(org.trial_ends_at) > new Date();
+    if (!isActive && !isTrialActive) {
+      return res.status(402).json({ error: 'Subscription required', message: 'Subscribe to use the widget.' });
+    }
+
     res.json({
       organization: { id: org.id, name: org.name },
       apiEndpoint: process.env.API_URL || 'http://localhost:3000',
-      models: ['quantum-7b', 'quantum-13b']
+      models: ['quantum-1.7b', 'quantum-3b', 'quantum-7b']
     });
   } catch (err) {
     console.error('Widget chat error:', err);
@@ -2104,7 +2040,7 @@ app.post('/api/widget/:orgApiKey/generate', async (req, res) => {
   }
   try {
     const orgResult = await db.query(
-      'SELECT id, credits_balance FROM organizations WHERE api_key = $1',
+      'SELECT id, subscription_status, trial_ends_at FROM organizations WHERE api_key = $1',
       [orgApiKey]
     );
     if (orgResult.rows.length === 0) {
@@ -2112,29 +2048,18 @@ app.post('/api/widget/:orgApiKey/generate', async (req, res) => {
     }
     const org = orgResult.rows[0];
 
-    // Check subscription status — subscribers get unlimited
-    const subResult = await db.query('SELECT subscription_status FROM organizations WHERE id = $1', [org.id]);
-    const isSubscribed = subResult.rows[0]?.subscription_status === 'active';
-
-    const creditsBalance = org.credits_balance ?? 100;
-
-    // Only deduct credits for free-tier users
-    if (!isSubscribed && creditsBalance > 0) {
-      await db.query('UPDATE organizations SET credits_balance = credits_balance - 1 WHERE id = $1', [org.id]);
-      await db.query(
-        'INSERT INTO credit_ledger (organization_id, amount, reason) VALUES ($1, $2, $3)',
-        [org.id, -1, 'Widget inference usage']
-      );
+    // Check billing — must be active or in trial
+    const isActive = org.subscription_status === 'active';
+    const isTrialActive = org.subscription_status === 'trial' && org.trial_ends_at && new Date(org.trial_ends_at) > new Date();
+    if (!isActive && !isTrialActive) {
+      return res.status(402).json({ error: 'Subscription required', message: 'Subscribe to Pure Edge ($0.15/device/month) or Hybrid RAG ($0.45/device/month) to continue.' });
     }
 
     // Placeholder response — actual inference happens client-side via SDK
-    const remaining = isSubscribed ? 'unlimited' : Math.max(creditsBalance - 1, 0);
     res.json({
       response: 'This is a placeholder response. The actual inference happens client-side via the SDK.',
       sessionId,
-      model,
-      creditsRemaining: remaining,
-      ...(!isSubscribed && creditsBalance <= 1 && { credits_exhausted: true, upgrade_message: 'Your free inferences are used up. Subscribe to Pure Edge ($0.15/device/month) or Hybrid RAG ($0.45/device/month) for unlimited.' })
+      model
     });
   } catch (err) {
     console.error('Widget generate error:', err);
@@ -2393,15 +2318,25 @@ app.post('/api/rag/knowledge-bases/:kbId/documents/scrape', authenticate, checkB
     const kb = await db.query('SELECT * FROM knowledge_bases WHERE id = $1 AND organization_id = $2', [kbId, req.user.org_id]);
     if (kb.rows.length === 0) return res.status(404).json({ error: 'Knowledge base not found' });
 
-    // Validate URL (basic SSRF protection)
+    // Validate URL (SSRF protection — block all private/internal ranges)
     let parsedUrl;
     try {
       parsedUrl = new URL(url);
       if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
         return res.status(400).json({ error: 'Only HTTP/HTTPS URLs are allowed' });
       }
-      const hostname = parsedUrl.hostname;
-      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('10.') || hostname.startsWith('192.168.') || hostname.startsWith('169.254.') || hostname === '0.0.0.0') {
+      const hostname = parsedUrl.hostname.toLowerCase();
+      // Block private/internal IPs and hostnames
+      const blockedPatterns = [
+        'localhost', '127.0.0.1', '0.0.0.0', '[::1]',
+        /^10\./, /^172\.(1[6-9]|2[0-9]|3[01])\./, /^192\.168\./, /^169\.254\./,
+        /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./, // CGNAT range
+        'metadata.google.internal', /\.internal$/, /\.local$/,
+      ];
+      const isBlocked = blockedPatterns.some(p =>
+        p instanceof RegExp ? p.test(hostname) : hostname === p || hostname.endsWith('.' + p)
+      );
+      if (isBlocked) {
         return res.status(400).json({ error: 'Internal/private URLs are not allowed' });
       }
     } catch (e) {
@@ -2587,12 +2522,6 @@ app.post('/api/rag/knowledge-bases/:kbId/query', authenticate, checkBillingStatu
     const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || 'eshir010@ucr.edu').split(',').map(e => e.trim().toLowerCase());
     const isAdmin = ADMIN_EMAILS.includes(req.user.email?.toLowerCase());
     if (!isAdmin) {
-      const orgResult = await db.query('SELECT credits_balance, subscription_status FROM organizations WHERE id = $1', [req.user.org_id]);
-      const org = orgResult.rows[0];
-      if (org && org.subscription_status !== 'active' && (org.credits_balance ?? 100) > 0) {
-        await db.query('UPDATE organizations SET credits_balance = GREATEST(credits_balance - 1, 0) WHERE id = $1', [req.user.org_id]);
-        await db.query('INSERT INTO credit_ledger (organization_id, amount, reason) VALUES ($1, $2, $3)', [req.user.org_id, -1, 'RAG query']);
-      }
     }
 
     const latencyMs = Date.now() - startTime;

@@ -154,8 +154,8 @@ export const getBillingStatus = async () => {
   return response.data;
 };
 
-export const createCheckout = async () => {
-  const response = await api.post('/billing/create-checkout');
+export const createCheckout = async (plan: string = 'pure_edge') => {
+  const response = await api.post('/billing/create-checkout', { plan });
   return response.data;
 };
 
@@ -169,12 +169,12 @@ export const validateDiscount = async (code: string) => {
   return response.data;
 };
 
-export const createCheckoutWithDiscount = async (discountCode?: string) => {
-  const response = await api.post('/billing/create-checkout', { discountCode });
+export const createCheckoutWithDiscount = async (plan: string, discountCode?: string) => {
+  const response = await api.post('/billing/create-checkout', { plan, discountCode });
   return response.data;
 };
 
-export const getCreditsBalance = async () => {
+export const getSubscriptionStatus = async () => {
   const response = await api.get('/credits/balance');
   return response.data;
 };
