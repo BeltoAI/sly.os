@@ -1425,7 +1425,7 @@ app.get('/api/ideas', authenticate, async (req, res) => {
         COALESCE((SELECT vote FROM idea_votes WHERE idea_id = i.id AND user_id = $1), 0) as user_vote
       FROM ideas i
     `;
-    const params = [req.user.userId];
+    const params = [req.user.id];
     let paramIdx = 2;
 
     if (category && category !== 'all') {
@@ -1458,7 +1458,7 @@ app.post('/api/ideas', authenticate, async (req, res) => {
 
   try {
     // Get user name
-    const userResult = await db.query('SELECT name, email FROM users WHERE id = $1', [req.user.userId]);
+    const userResult = await db.query('SELECT name, email FROM users WHERE id = $1', [req.user.id]);
     const userName = userResult.rows[0]?.name || 'Anonymous';
     const userEmail = userResult.rows[0]?.email || null;
 
@@ -1466,12 +1466,12 @@ app.post('/api/ideas', authenticate, async (req, res) => {
       INSERT INTO ideas (organization_id, author_id, author_name, author_email, title, description, category, vote_count)
       VALUES ($1, $2, $3, $4, $5, $6, $7, 1)
       RETURNING *
-    `, [req.user.org_id, req.user.userId, userName, userEmail, title.trim(), description.trim(), category || 'general']);
+    `, [req.user.org_id, req.user.id, userName, userEmail, title.trim(), description.trim(), category || 'general']);
 
     // Auto-upvote own idea
     await db.query(`
       INSERT INTO idea_votes (idea_id, user_id, vote) VALUES ($1, $2, 1) ON CONFLICT DO NOTHING
-    `, [result.rows[0].id, req.user.userId]);
+    `, [result.rows[0].id, req.user.id]);
 
     res.json({ ...result.rows[0], user_vote: 1 });
   } catch (err) {
@@ -1494,10 +1494,10 @@ app.post('/api/ideas/:ideaId/vote', authenticate, async (req, res) => {
       await db.query(`
         INSERT INTO idea_votes (idea_id, user_id, vote) VALUES ($1, $2, 1)
         ON CONFLICT (idea_id, user_id) DO UPDATE SET vote = 1
-      `, [ideaId, req.user.userId]);
+      `, [ideaId, req.user.id]);
     } else {
       // Remove vote
-      await db.query('DELETE FROM idea_votes WHERE idea_id = $1 AND user_id = $2', [ideaId, req.user.userId]);
+      await db.query('DELETE FROM idea_votes WHERE idea_id = $1 AND user_id = $2', [ideaId, req.user.id]);
     }
 
     // Recount votes
@@ -1521,7 +1521,7 @@ app.delete('/api/ideas/:ideaId', authenticate, async (req, res) => {
   try {
     const result = await db.query(
       'DELETE FROM ideas WHERE id = $1 AND author_id = $2 RETURNING id',
-      [ideaId, req.user.userId]
+      [ideaId, req.user.id]
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Idea not found or you are not the author' });
