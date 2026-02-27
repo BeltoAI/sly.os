@@ -83,6 +83,26 @@ export const removeDevice = async (deviceId: string) => {
   return res.data;
 };
 
+export const getDeviceDetails = async (deviceId: string) => {
+  const res = await api.get(`/devices/${deviceId}/details`);
+  return res.data;
+};
+
+export const getDeviceScore = async (deviceId: string) => {
+  const res = await api.get(`/devices/${deviceId}/score`);
+  return res.data;
+};
+
+export const getDeviceMetrics = async (deviceId: string, days: number = 7) => {
+  const res = await api.get(`/devices/${deviceId}/metrics?days=${days}`);
+  return res.data;
+};
+
+export const updateDeviceName = async (deviceId: string, name: string) => {
+  const res = await api.put(`/devices/${deviceId}/name`, { name });
+  return res.data;
+};
+
 export const getModels = async () => {
   const res = await api.get('/models');
   return res.data;

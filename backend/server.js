@@ -266,6 +266,84 @@ db.query(`
   ALTER TABLE devices ADD COLUMN IF NOT EXISTS enabled BOOLEAN DEFAULT true;
 `).catch(() => {});
 
+// ─── Device Intelligence Schema Migration ───────────────────────────
+// Rich device profiling columns (all nullable, non-breaking)
+db.query(`
+  ALTER TABLE devices ADD COLUMN IF NOT EXISTS device_fingerprint VARCHAR(64);
+  ALTER TABLE devices ADD COLUMN IF NOT EXISTS device_name VARCHAR(255);
+  ALTER TABLE devices ADD COLUMN IF NOT EXISTS gpu_renderer VARCHAR(255);
+  ALTER TABLE devices ADD COLUMN IF NOT EXISTS gpu_vram_mb INTEGER;
+  ALTER TABLE devices ADD COLUMN IF NOT EXISTS screen_width INTEGER;
+  ALTER TABLE devices ADD COLUMN IF NOT EXISTS screen_height INTEGER;
+  ALTER TABLE devices ADD COLUMN IF NOT EXISTS pixel_ratio DECIMAL(4,2);
+  ALTER TABLE devices ADD COLUMN IF NOT EXISTS browser_name VARCHAR(100);
+  ALTER TABLE devices ADD COLUMN IF NOT EXISTS browser_version VARCHAR(50);
+  ALTER TABLE devices ADD COLUMN IF NOT EXISTS sdk_version VARCHAR(50);
+  ALTER TABLE devices ADD COLUMN IF NOT EXISTS network_type VARCHAR(50);
+  ALTER TABLE devices ADD COLUMN IF NOT EXISTS latency_to_api_ms INTEGER;
+  ALTER TABLE devices ADD COLUMN IF NOT EXISTS timezone VARCHAR(50);
+  ALTER TABLE devices ADD COLUMN IF NOT EXISTS total_inferences BIGINT DEFAULT 0;
+  ALTER TABLE devices ADD COLUMN IF NOT EXISTS avg_latency_ms DECIMAL(10,2);
+  ALTER TABLE devices ADD COLUMN IF NOT EXISTS p95_latency_ms DECIMAL(10,2);
+  ALTER TABLE devices ADD COLUMN IF NOT EXISTS success_rate DECIMAL(5,2) DEFAULT 100;
+  ALTER TABLE devices ADD COLUMN IF NOT EXISTS last_inference_at TIMESTAMP;
+  ALTER TABLE devices ADD COLUMN IF NOT EXISTS capability_score DECIMAL(5,2) DEFAULT 0;
+  ALTER TABLE devices ADD COLUMN IF NOT EXISTS performance_score DECIMAL(5,2) DEFAULT 0;
+  ALTER TABLE devices ADD COLUMN IF NOT EXISTS reliability_score DECIMAL(5,2) DEFAULT 0;
+  ALTER TABLE devices ADD COLUMN IF NOT EXISTS slyos_score DECIMAL(5,2) DEFAULT 0;
+  ALTER TABLE devices ADD COLUMN IF NOT EXISTS score_updated_at TIMESTAMP;
+`).then(() => {
+  console.log('✅ Device intelligence columns added');
+}).catch((err) => { console.log('Device intelligence columns note:', err.message); });
+
+// Device metrics — hourly aggregation for analytics
+db.query(`
+  CREATE TABLE IF NOT EXISTS device_metrics (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    organization_id UUID NOT NULL,
+    metric_hour TIMESTAMP NOT NULL,
+    inference_count INTEGER DEFAULT 0,
+    total_tokens BIGINT DEFAULT 0,
+    avg_latency_ms DECIMAL(10,2),
+    error_count INTEGER DEFAULT 0,
+    success_count INTEGER DEFAULT 0,
+    UNIQUE(device_id, metric_hour)
+  )
+`).then(() => {
+  console.log('✅ Device metrics table initialized');
+}).catch((err) => { console.log('Device metrics table note:', err.message); });
+
+// Device capabilities — what each device can actually run
+db.query(`
+  CREATE TABLE IF NOT EXISTS device_capabilities (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    wasm_available BOOLEAN DEFAULT false,
+    webgpu_available BOOLEAN DEFAULT false,
+    max_model_size_mb INTEGER,
+    supported_quants TEXT[] DEFAULT '{}',
+    can_run_1b BOOLEAN DEFAULT false,
+    can_run_3b BOOLEAN DEFAULT false,
+    can_run_8b BOOLEAN DEFAULT false,
+    recommended_tier SMALLINT DEFAULT 1,
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(device_id)
+  )
+`).then(() => {
+  console.log('✅ Device capabilities table initialized');
+}).catch((err) => { console.log('Device capabilities table note:', err.message); });
+
+// Device intelligence indexes
+db.query(`
+  CREATE INDEX IF NOT EXISTS idx_device_metrics_device_hour ON device_metrics(device_id, metric_hour);
+  CREATE INDEX IF NOT EXISTS idx_device_metrics_org ON device_metrics(organization_id);
+  CREATE INDEX IF NOT EXISTS idx_devices_fingerprint ON devices(device_fingerprint);
+  CREATE INDEX IF NOT EXISTS idx_devices_slyos_score ON devices(slyos_score DESC);
+`).then(() => {
+  console.log('✅ Device intelligence indexes created');
+}).catch((err) => { console.log('Device intelligence indexes note:', err.message); });
+
 // CORS - production-ready
 const allowedOrigins = process.env.CORS_ORIGIN ?
   process.env.CORS_ORIGIN.split(',') :
@@ -872,27 +950,117 @@ app.put('/api/auth/organization', authenticate, async (req, res) => {
 });
 
 app.post('/api/devices/register', authenticate, checkBillingStatus, async (req, res) => {
-  const { device_id, platform, os_version, total_memory_mb, cpu_cores, country } = req.body;
+  const {
+    device_id, platform, os_version, total_memory_mb, cpu_cores, country,
+    // New device intelligence fields
+    device_fingerprint, device_name,
+    gpu_renderer, gpu_vram_mb,
+    screen_width, screen_height, pixel_ratio,
+    browser_name, browser_version, sdk_version,
+    network_type, latency_to_api_ms, timezone,
+    // Capabilities
+    wasm_available, webgpu_available, supported_quants, recommended_tier
+  } = req.body;
+
   if (!device_id || !platform) {
     return res.status(400).json({ error: 'device_id and platform required' });
   }
   try {
-    // Check if this device exists but is disabled
-    const existingDevice = await db.query(
-      'SELECT id, enabled FROM devices WHERE organization_id = $1 AND device_id = $2',
-      [req.user.org_id, device_id]
-    );
+    // Check if device exists by fingerprint first, then device_id
+    let existingDevice;
+    if (device_fingerprint) {
+      existingDevice = await db.query(
+        'SELECT id, enabled, device_id FROM devices WHERE organization_id = $1 AND device_fingerprint = $2',
+        [req.user.org_id, device_fingerprint]
+      );
+    }
+    if (!existingDevice || existingDevice.rows.length === 0) {
+      existingDevice = await db.query(
+        'SELECT id, enabled FROM devices WHERE organization_id = $1 AND device_id = $2',
+        [req.user.org_id, device_id]
+      );
+    }
+
     if (existingDevice.rows.length > 0 && existingDevice.rows[0].enabled === false) {
       return res.status(403).json({ error: 'This device has been disabled. Re-enable it from the dashboard to continue.' });
     }
 
+    if (existingDevice.rows.length > 0) {
+      // Update existing device with latest profile data
+      const result = await db.query(`
+        UPDATE devices SET
+          last_seen = CURRENT_TIMESTAMP,
+          device_name = COALESCE($2, device_name),
+          os_version = COALESCE($3, os_version),
+          total_memory_mb = COALESCE($4, total_memory_mb),
+          cpu_cores = COALESCE($5, cpu_cores),
+          gpu_renderer = COALESCE($6, gpu_renderer),
+          gpu_vram_mb = COALESCE($7, gpu_vram_mb),
+          screen_width = COALESCE($8, screen_width),
+          screen_height = COALESCE($9, screen_height),
+          pixel_ratio = COALESCE($10, pixel_ratio),
+          browser_name = COALESCE($11, browser_name),
+          browser_version = COALESCE($12, browser_version),
+          sdk_version = COALESCE($13, sdk_version),
+          network_type = COALESCE($14, network_type),
+          latency_to_api_ms = COALESCE($15, latency_to_api_ms),
+          timezone = COALESCE($16, timezone),
+          device_fingerprint = COALESCE($17, device_fingerprint)
+        WHERE id = $1
+        RETURNING *
+      `, [
+        existingDevice.rows[0].id, device_name, os_version, total_memory_mb, cpu_cores,
+        gpu_renderer, gpu_vram_mb, screen_width, screen_height, pixel_ratio,
+        browser_name, browser_version, sdk_version, network_type, latency_to_api_ms,
+        timezone, device_fingerprint
+      ]);
+
+      // Upsert capabilities if provided
+      if (wasm_available !== undefined || webgpu_available !== undefined) {
+        await db.query(`
+          INSERT INTO device_capabilities (device_id, wasm_available, webgpu_available, supported_quants, recommended_tier)
+          VALUES ($1, $2, $3, $4, $5)
+          ON CONFLICT (device_id)
+          DO UPDATE SET wasm_available = $2, webgpu_available = $3, supported_quants = $4, recommended_tier = $5, updated_at = NOW()
+        `, [existingDevice.rows[0].id, wasm_available || false, webgpu_available || false, supported_quants || [], recommended_tier || 1]);
+      }
+
+      return res.json(result.rows[0]);
+    }
+
+    // New device registration
     const result = await db.query(`
-      INSERT INTO devices (organization_id, device_id, platform, os_version, total_memory_mb, cpu_cores, country, last_seen, enabled)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, true)
+      INSERT INTO devices (
+        organization_id, device_id, device_fingerprint, device_name,
+        platform, os_version, total_memory_mb, cpu_cores, country,
+        gpu_renderer, gpu_vram_mb,
+        screen_width, screen_height, pixel_ratio,
+        browser_name, browser_version, sdk_version,
+        network_type, latency_to_api_ms, timezone,
+        last_seen, enabled
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP, true)
       ON CONFLICT (organization_id, device_id)
-      DO UPDATE SET last_seen = CURRENT_TIMESTAMP
+      DO UPDATE SET last_seen = CURRENT_TIMESTAMP, device_fingerprint = COALESCE(EXCLUDED.device_fingerprint, devices.device_fingerprint)
       RETURNING *
-    `, [req.user.org_id, device_id, platform, os_version, total_memory_mb, cpu_cores, country]);
+    `, [
+      req.user.org_id, device_id, device_fingerprint, device_name,
+      platform, os_version, total_memory_mb, cpu_cores, country,
+      gpu_renderer, gpu_vram_mb,
+      screen_width, screen_height, pixel_ratio,
+      browser_name, browser_version, sdk_version,
+      network_type, latency_to_api_ms, timezone
+    ]);
+
+    // Insert capabilities for new device
+    if (result.rows[0] && (wasm_available !== undefined || webgpu_available !== undefined)) {
+      await db.query(`
+        INSERT INTO device_capabilities (device_id, wasm_available, webgpu_available, supported_quants, recommended_tier)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (device_id) DO NOTHING
+      `, [result.rows[0].id, wasm_available || false, webgpu_available || false, supported_quants || [], recommended_tier || 1]);
+    }
+
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
@@ -903,9 +1071,15 @@ app.post('/api/devices/register', authenticate, checkBillingStatus, async (req, 
 app.get('/api/devices', authenticate, checkBillingStatus, async (req, res) => {
   try {
     const result = await db.query(`
-      SELECT d.*, COUNT(dm.id) as model_count FROM devices d
+      SELECT d.*, COUNT(dm.id) as model_count,
+        dc.wasm_available, dc.webgpu_available, dc.recommended_tier
+      FROM devices d
       LEFT JOIN device_models dm ON d.id = dm.device_id
-      WHERE d.organization_id = $1 GROUP BY d.id ORDER BY d.enabled DESC, d.last_seen DESC LIMIT 100
+      LEFT JOIN device_capabilities dc ON d.id = dc.device_id
+      WHERE d.organization_id = $1
+      GROUP BY d.id, dc.id
+      ORDER BY d.enabled DESC, d.slyos_score DESC NULLS LAST, d.last_seen DESC
+      LIMIT 100
     `, [req.user.org_id]);
     res.json(result.rows);
   } catch (err) {
@@ -953,6 +1127,247 @@ app.delete('/api/devices/:deviceId', authenticate, async (req, res) => {
   } catch (err) {
     console.error('Delete device error:', err);
     res.status(500).json({ error: 'Failed to remove device' });
+  }
+});
+
+// ─── Device Intelligence Endpoints ──────────────────────────────────
+
+// Batch telemetry — receives inference metrics from SDK
+app.post('/api/devices/telemetry', authenticate, async (req, res) => {
+  const { device_id, metrics } = req.body;
+  if (!device_id || !Array.isArray(metrics) || metrics.length === 0) {
+    return res.status(400).json({ error: 'device_id and metrics[] required' });
+  }
+  try {
+    // Look up device
+    const device = await db.query(
+      'SELECT id FROM devices WHERE device_id = $1 AND organization_id = $2',
+      [device_id, req.user.org_id]
+    );
+    if (device.rows.length === 0) {
+      return res.status(404).json({ error: 'Device not found' });
+    }
+    const dbDeviceId = device.rows[0].id;
+
+    // Process each metric and aggregate into hourly buckets
+    let totalInferences = 0;
+    let totalLatency = 0;
+    let successCount = 0;
+    let errorCount = 0;
+    let totalTokens = 0;
+
+    for (const m of metrics) {
+      totalInferences++;
+      totalLatency += m.latency_ms || 0;
+      totalTokens += m.tokens_generated || 0;
+      if (m.success) successCount++;
+      else errorCount++;
+
+      // Upsert into hourly device_metrics
+      const metricHour = new Date(m.timestamp || Date.now());
+      metricHour.setMinutes(0, 0, 0);
+
+      await db.query(`
+        INSERT INTO device_metrics (device_id, organization_id, metric_hour, inference_count, total_tokens, avg_latency_ms, success_count, error_count)
+        VALUES ($1, $2, $3, 1, $4, $5, $6, $7)
+        ON CONFLICT (device_id, metric_hour)
+        DO UPDATE SET
+          inference_count = device_metrics.inference_count + 1,
+          total_tokens = device_metrics.total_tokens + $4,
+          avg_latency_ms = (device_metrics.avg_latency_ms * device_metrics.inference_count + $5) / (device_metrics.inference_count + 1),
+          success_count = device_metrics.success_count + $6,
+          error_count = device_metrics.error_count + $7
+      `, [dbDeviceId, req.user.org_id, metricHour, m.tokens_generated || 0, m.latency_ms || 0, m.success ? 1 : 0, m.success ? 0 : 1]);
+    }
+
+    // Update running stats on the device itself
+    const avgLatency = totalInferences > 0 ? totalLatency / totalInferences : null;
+    const rate = totalInferences > 0 ? (successCount / totalInferences * 100) : 100;
+
+    await db.query(`
+      UPDATE devices SET
+        total_inferences = COALESCE(total_inferences, 0) + $2,
+        last_inference_at = CURRENT_TIMESTAMP,
+        avg_latency_ms = CASE
+          WHEN avg_latency_ms IS NULL THEN $3
+          ELSE (avg_latency_ms * COALESCE(total_inferences, 0) + $4) / (COALESCE(total_inferences, 0) + $2)
+        END,
+        success_rate = CASE
+          WHEN success_rate IS NULL THEN $5
+          ELSE (success_rate * COALESCE(total_inferences, 0) + $5 * $2) / (COALESCE(total_inferences, 0) + $2)
+        END
+      WHERE id = $1
+    `, [dbDeviceId, totalInferences, avgLatency, totalLatency, rate]);
+
+    res.json({ success: true, processed: totalInferences });
+  } catch (err) {
+    console.error('Telemetry error:', err);
+    res.status(500).json({ error: 'Failed to process telemetry' });
+  }
+});
+
+// SlyOS Score calculation helpers
+function calculateCapabilityScore(device) {
+  let score = 0;
+  score += Math.min((device.cpu_cores || 4) / 8 * 30, 30);
+  score += Math.min((device.total_memory_mb || 4096) / 16384 * 40, 40);
+  if (device.gpu_renderer && device.gpu_renderer !== 'none') score += 10;
+  score += Math.min((device.screen_width || 0) > 0 ? 5 : 0, 5); // Has display
+  if (device.gpu_vram_mb && device.gpu_vram_mb > 0) score += Math.min(device.gpu_vram_mb / 4096 * 15, 15);
+  return Math.min(score, 100);
+}
+
+function calculatePerformanceScore(device) {
+  if (!device.avg_latency_ms || device.total_inferences == 0) return 50; // No data yet
+  let score = 100;
+  // Penalize high latency: -5pts per 200ms
+  score -= Math.min(parseFloat(device.avg_latency_ms) / 200 * 5, 60);
+  // Bonus for high throughput
+  if (parseFloat(device.avg_latency_ms) < 100) score = Math.min(score + 10, 100);
+  return Math.max(score, 0);
+}
+
+function calculateReliabilityScore(device) {
+  if (!device.total_inferences || device.total_inferences == 0) return 50; // No data
+  return parseFloat(device.success_rate) || 100;
+}
+
+function calculateEngagementScore(device) {
+  let score = 0;
+  const inferences = parseInt(device.total_inferences) || 0;
+  score += Math.min(inferences / 1000 * 30, 30);
+  // Recent activity bonus
+  if (device.last_inference_at) {
+    const daysSince = (Date.now() - new Date(device.last_inference_at).getTime()) / 86400000;
+    if (daysSince < 1) score += 30;
+    else if (daysSince < 7) score += 20;
+    else if (daysSince < 30) score += 10;
+  }
+  // Model diversity
+  const modelCount = parseInt(device.model_count) || 0;
+  score += Math.min(modelCount * 10, 40);
+  return Math.min(score, 100);
+}
+
+// Get device score
+app.get('/api/devices/:deviceId/score', authenticate, async (req, res) => {
+  const { deviceId } = req.params;
+  try {
+    const result = await db.query(`
+      SELECT d.*, COUNT(DISTINCT dm.model_id) as model_count
+      FROM devices d
+      LEFT JOIN device_models dm ON d.id = dm.device_id
+      WHERE d.id = $1 AND d.organization_id = $2
+      GROUP BY d.id
+    `, [deviceId, req.user.org_id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Device not found' });
+    }
+
+    const d = result.rows[0];
+    const capability = calculateCapabilityScore(d);
+    const performance = calculatePerformanceScore(d);
+    const reliability = calculateReliabilityScore(d);
+    const engagement = calculateEngagementScore(d);
+    const slyosScore = capability * 0.30 + performance * 0.35 + reliability * 0.25 + engagement * 0.10;
+
+    // Persist scores
+    await db.query(`
+      UPDATE devices SET
+        capability_score = $2, performance_score = $3,
+        reliability_score = $4, slyos_score = $5, score_updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+    `, [deviceId, capability.toFixed(2), performance.toFixed(2), reliability.toFixed(2), slyosScore.toFixed(2)]);
+
+    // Determine tier
+    let tier = 'Baseline';
+    if (slyosScore >= 90) tier = 'Power User';
+    else if (slyosScore >= 75) tier = 'Advanced';
+    else if (slyosScore >= 60) tier = 'Standard';
+    else if (slyosScore >= 40) tier = 'Limited';
+
+    res.json({
+      slyos_score: parseFloat(slyosScore.toFixed(2)),
+      tier,
+      breakdown: {
+        capability: parseFloat(capability.toFixed(2)),
+        performance: parseFloat(performance.toFixed(2)),
+        reliability: parseFloat(reliability.toFixed(2)),
+        engagement: parseFloat(engagement.toFixed(2)),
+      },
+      weights: { capability: 0.30, performance: 0.35, reliability: 0.25, engagement: 0.10 }
+    });
+  } catch (err) {
+    console.error('Score error:', err);
+    res.status(500).json({ error: 'Failed to calculate score' });
+  }
+});
+
+// Get device metrics (hourly data for charts)
+app.get('/api/devices/:deviceId/metrics', authenticate, async (req, res) => {
+  const { deviceId } = req.params;
+  const days = parseInt(req.query.days) || 7;
+  try {
+    const result = await db.query(`
+      SELECT metric_hour, inference_count, total_tokens, avg_latency_ms, success_count, error_count
+      FROM device_metrics
+      WHERE device_id = $1 AND organization_id = $2
+        AND metric_hour >= NOW() - INTERVAL '${days} days'
+      ORDER BY metric_hour ASC
+    `, [deviceId, req.user.org_id]);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Metrics error:', err);
+    res.status(500).json({ error: 'Failed to fetch metrics' });
+  }
+});
+
+// Update device name
+app.put('/api/devices/:deviceId/name', authenticate, async (req, res) => {
+  const { deviceId } = req.params;
+  const { name } = req.body;
+  if (!name || typeof name !== 'string') {
+    return res.status(400).json({ error: 'name (string) is required' });
+  }
+  try {
+    const result = await db.query(
+      'UPDATE devices SET device_name = $1 WHERE id = $2 AND organization_id = $3 RETURNING *',
+      [name.substring(0, 255), deviceId, req.user.org_id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Device not found' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Update name error:', err);
+    res.status(500).json({ error: 'Failed to update device name' });
+  }
+});
+
+// Get device with capabilities
+app.get('/api/devices/:deviceId/details', authenticate, async (req, res) => {
+  const { deviceId } = req.params;
+  try {
+    const result = await db.query(`
+      SELECT d.*, dc.wasm_available, dc.webgpu_available, dc.max_model_size_mb,
+        dc.supported_quants, dc.recommended_tier,
+        COUNT(DISTINCT dm.model_id) as model_count
+      FROM devices d
+      LEFT JOIN device_capabilities dc ON d.id = dc.device_id
+      LEFT JOIN device_models dm ON d.id = dm.device_id
+      WHERE d.id = $1 AND d.organization_id = $2
+      GROUP BY d.id, dc.id
+    `, [deviceId, req.user.org_id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Device not found' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Device details error:', err);
+    res.status(500).json({ error: 'Failed to fetch device details' });
   }
 });
 
