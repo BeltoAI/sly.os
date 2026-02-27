@@ -61,7 +61,7 @@ const response = await sdk.generate('quantum-3b', 'Hello, how are you?', {
   maxTokens: 100
 });
 
-console.log(response.text);
+console.log(response);
 // Output: Generated entirely on the user's device
 ```
 
@@ -148,10 +148,10 @@ All devices are billed equally. Choose Pure Edge for core AI inference or upgrad
 
 | Model | Category | Size | Inference Speed | Best For |
 |-------|----------|------|-----------------|----------|
-| **quantum-1.7b** | LLM | 1.0 GB | 15 tok/sec | Advanced features on high-end phones |
-| **quantum-3b** | LLM | 1.7 GB | 10 tok/sec | Desktop & tablet applications |
-| **quantum-code-3b** | Code LLM | 1.7 GB | 10 tok/sec | Code generation & completion |
-| **quantum-8b** | LLM | 4.8 GB | 5 tok/sec | Server-side inference, high quality |
+| **quantum-1.7b** | LLM | 0.9 GB | 15 tok/sec | Advanced features on high-end phones |
+| **quantum-3b** | LLM | 1.6 GB | 10 tok/sec | Desktop & tablet applications |
+| **quantum-code-3b** | Code LLM | 1.6 GB | 10 tok/sec | Code generation & completion |
+| **quantum-8b** | LLM | 4.2 GB | 5 tok/sec | Server-side inference, high quality |
 | **voicecore-base** | Speech-to-Text | 145 MB | 1x | Voice features & transcription |
 | **voicecore-small** | Speech-to-Text | 75 MB | 2x | Lightweight voice on mobile |
 
