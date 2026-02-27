@@ -558,7 +558,7 @@ export default function SettingsPage() {
 
               {!isActive && isTrialActive && (
                 <Button
-                  onClick={handleSubscribe}
+                  onClick={() => handleSubscribe()}
                   disabled={checkoutLoading}
                   className="w-full gap-2 bg-gradient-to-r from-[#FF4D00] to-[#FF6B35] hover:from-[#FF5C1A] hover:to-[#FF7A4A] text-white font-semibold"
                 >
@@ -599,7 +599,7 @@ export default function SettingsPage() {
 
               {isExpired && (
                 <Button
-                  onClick={handleSubscribe}
+                  onClick={() => handleSubscribe()}
                   disabled={checkoutLoading}
                   className="w-full gap-2 bg-gradient-to-r from-[#FF4D00] to-[#FF6B35] hover:from-[#FF5C1A] hover:to-[#FF7A4A] text-white font-semibold"
                 >

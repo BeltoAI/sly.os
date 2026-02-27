@@ -320,7 +320,7 @@ async function detectContextWindowFromHF(hfModelId: string): Promise<number> {
 }
 
 // ─── SDK Version ────────────────────────────────────────────────────
-const SDK_VERSION = '1.4.0';
+const SDK_VERSION = '1.4.1';
 
 // ─── Persistent Device Identity ─────────────────────────────────────
 
