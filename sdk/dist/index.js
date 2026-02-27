@@ -101,7 +101,7 @@ async function detectContextWindowFromHF(hfModelId) {
     }
 }
 // ─── SDK Version ────────────────────────────────────────────────────
-const SDK_VERSION = '1.4.0';
+const SDK_VERSION = '1.4.1';
 // ─── Persistent Device Identity ─────────────────────────────────────
 async function hashString(str) {
     const isNode = typeof window === 'undefined';
