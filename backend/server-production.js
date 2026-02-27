@@ -1969,7 +1969,6 @@ app.post('/api/keys/regenerate', authenticate, async (req, res) => {
     return res.status(403).json({ error: 'Only admins can regenerate API keys' });
   }
   try {
-    const crypto = require('crypto');
     const newKey = 'sk_live_' + crypto.randomBytes(24).toString('hex');
     await db.query('UPDATE organizations SET api_key = $1 WHERE id = $2', [newKey, req.user.org_id]);
     res.json({ key: newKey, message: 'API key regenerated. Update your SDK configuration.' });
@@ -1989,7 +1988,7 @@ app.post('/api/widget/config', async (req, res) => {
     res.json({
       widgetId,
       apiEndpoint: process.env.API_URL || 'http://localhost:3000',
-      models: ['quantum-1.7b', 'quantum-3b', 'quantum-7b'],
+      models: ['quantum-1.7b', 'quantum-3b'],
       defaultModel: 'quantum-1.7b',
       theme: 'dark'
     });
@@ -2024,7 +2023,7 @@ app.get('/api/widget/:orgApiKey/chat', async (req, res) => {
     res.json({
       organization: { id: org.id, name: org.name },
       apiEndpoint: process.env.API_URL || 'http://localhost:3000',
-      models: ['quantum-1.7b', 'quantum-3b', 'quantum-7b']
+      models: ['quantum-1.7b', 'quantum-3b']
     });
   } catch (err) {
     console.error('Widget chat error:', err);
@@ -2517,12 +2516,6 @@ app.post('/api/rag/knowledge-bases/:kbId/query', authenticate, checkBillingStatu
 
     // Build context for the LM
     const context = chunks.map((c, i) => `[Source: ${c.document_name}]\n${c.content}`).join('\n\n---\n\n');
-
-    // Deduct 1 credit (same as inference)
-    const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || 'eshir010@ucr.edu').split(',').map(e => e.trim().toLowerCase());
-    const isAdmin = ADMIN_EMAILS.includes(req.user.email?.toLowerCase());
-    if (!isAdmin) {
-    }
 
     const latencyMs = Date.now() - startTime;
 

@@ -144,8 +144,7 @@ ADMIN_EMAILS=admin@example.com,admin2@example.com
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| GET | `/api/credits/balance` | Yes | Get current credit balance |
-| POST | `/api/credits/purchase` | Yes | Purchase credits |
+| GET | `/api/credits/balance` | Yes | Get subscription status |
 
 ### API Keys
 
@@ -192,7 +191,6 @@ Several endpoints check billing status (via `checkBillingStatus` middleware):
 - `/api/telemetry`
 - `/api/rag/knowledge-bases` (all endpoints)
 - `/api/credits/balance`
-- `/api/credits/purchase`
 
 These endpoints return a 402 (Payment Required) status if the organization is not in good standing.
 
