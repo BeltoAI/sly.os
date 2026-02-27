@@ -6,11 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   getProfile, updateProfile, changePassword, updateOrganization,
-  getBillingStatus, createCheckout, openBillingPortal, validateDiscount, createCheckoutWithDiscount, getCreditsBalance
+  getBillingStatus, createCheckout, openBillingPortal, validateDiscount, createCheckoutWithDiscount, getSubscriptionStatus
 } from '@/lib/api';
 import {
   User, Mail, Building2, Lock, Shield, Save, Loader2, Check, AlertCircle, Key, Calendar,
-  CreditCard, Zap, Copy, Terminal, AlertTriangle, X, TrendingUp, Coins, Tag
+  CreditCard, Zap, Copy, Terminal, AlertTriangle, X, TrendingUp, Tag
 } from 'lucide-react';
 
 export default function SettingsPage() {
@@ -43,7 +43,7 @@ export default function SettingsPage() {
 
   // Billing
   const [billingStatus, setBillingStatus] = useState<any>(null);
-  const [creditsBalance, setCreditsBalance] = useState<any>(null);
+  const [subscriptionInfo, setSubscriptionInfo] = useState<any>(null);
   const [billingLoading, setBillingLoading] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
@@ -52,6 +52,7 @@ export default function SettingsPage() {
   const [discountError, setDiscountError] = useState('');
   const [appliedDiscount, setAppliedDiscount] = useState<any>(null);
   const [validateLoading, setValidateLoading] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<'pure_edge' | 'hybrid_rag'>('pure_edge');
 
   useEffect(() => {
     const tab = searchParams.get('tab') || 'account';
@@ -59,7 +60,7 @@ export default function SettingsPage() {
     loadProfile();
     if (tab === 'billing') {
       loadBillingStatus();
-      loadCreditsBalance();
+      loadSubscriptionInfo();
     }
   }, [searchParams]);
 
@@ -90,12 +91,12 @@ export default function SettingsPage() {
     }
   };
 
-  const loadCreditsBalance = async () => {
+  const loadSubscriptionInfo = async () => {
     try {
-      const data = await getCreditsBalance();
-      setCreditsBalance(data);
+      const data = await getSubscriptionStatus();
+      setSubscriptionInfo(data);
     } catch (err) {
-      console.error('Failed to load credits balance:', err);
+      console.error('Failed to load subscription info:', err);
     }
   };
 
@@ -190,12 +191,13 @@ export default function SettingsPage() {
     }
   };
 
-  const handleSubscribe = async () => {
+  const handleSubscribe = async (plan?: 'pure_edge' | 'hybrid_rag') => {
+    const choosePlan = plan || selectedPlan;
     setCheckoutLoading(true);
     try {
       const session = appliedDiscount
-        ? await createCheckoutWithDiscount(appliedDiscount.code)
-        : await createCheckout();
+        ? await createCheckoutWithDiscount(choosePlan, appliedDiscount.code)
+        : await createCheckout(choosePlan);
       if (session.url) {
         window.location.href = session.url;
       }
@@ -502,7 +504,7 @@ export default function SettingsPage() {
                 <span style={{color:'#FF4D00'}}>import</span> SlyOS <span style={{color:'#FF4D00'}}>from</span> <span style={{color:'#4ade80'}}>'@emilshirokikh/slyos-sdk'</span>;{'\n'}
                 <span style={{color:'#FF4D00'}}>await</span> SlyOS.<span style={{color:'#8be9fd'}}>init</span>({'{'} apiKey: <span style={{color:'#4ade80'}}>'{apiKey.substring(0, 20)}...'</span> {'}'});{'\n\n'}
                 <span style={{color:'#888888'}}>// Generate</span>{'\n'}
-                <span style={{color:'#FF4D00'}}>const</span> response = <span style={{color:'#FF4D00'}}>await</span> SlyOS.<span style={{color:'#8be9fd'}}>generate</span>(<span style={{color:'#4ade80'}}>'quantum-360m'</span>, <span style={{color:'#4ade80'}}>'Hello!'</span>);
+                <span style={{color:'#FF4D00'}}>const</span> response = <span style={{color:'#FF4D00'}}>await</span> SlyOS.<span style={{color:'#8be9fd'}}>generate</span>(<span style={{color:'#4ade80'}}>'quantum-1.7b'</span>, <span style={{color:'#4ade80'}}>'Hello!'</span>);
               </div>
               <Button
                 className="gap-2 bg-[#FF4D00] hover:bg-[#E84300] text-white border-0"
@@ -617,15 +619,26 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
 
-          {/* Section 2: Plan Comparison */}
+          {/* Section 2: Plan Selection */}
+          {!isActive && (
+            <p className="text-xs text-[#888888] mb-2">Select a plan, then click Subscribe below.</p>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Pure Edge Plan */}
-            <div className={`rounded-2xl p-6 border-2 transition-all ${
-              planType === 'pure_edge'
+            <div
+              onClick={() => !isActive && setSelectedPlan('pure_edge')}
+              className={`rounded-2xl p-6 border-2 transition-all ${!isActive ? 'cursor-pointer' : ''} ${
+              isActive && planType === 'pure_edge'
                 ? 'bg-[rgba(255,77,0,0.08)] border-[#22c55e]'
-                : 'bg-[rgba(0,0,0,0.2)] border-[rgba(255,255,255,0.1)]'
+                : !isActive && selectedPlan === 'pure_edge'
+                ? 'bg-[rgba(255,77,0,0.08)] border-[#FF4D00]'
+                : 'bg-[rgba(0,0,0,0.2)] border-[rgba(255,255,255,0.1)] hover:border-[rgba(255,255,255,0.2)]'
             }`}>
-              <h3 className="text-lg font-bold text-[#EDEDED] mb-4">Pure Edge</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-[#EDEDED]">Pure Edge</h3>
+                {isActive && planType === 'pure_edge' && <span className="text-xs bg-[#22c55e]/20 text-[#22c55e] px-2 py-0.5 rounded-full">Active</span>}
+                {!isActive && selectedPlan === 'pure_edge' && <span className="text-xs bg-[#FF4D00]/20 text-[#FF4D00] px-2 py-0.5 rounded-full">Selected</span>}
+              </div>
               <div className="mb-6">
                 <div className="flex items-baseline gap-2 mb-1">
                   <span className="text-4xl font-bold text-[#FF4D00]">$0.15</span>
@@ -636,38 +649,41 @@ export default function SettingsPage() {
               <div className="space-y-3 mb-6">
                 <p className="text-xs text-[#555555] uppercase font-semibold">Features included:</p>
                 <ul className="space-y-2">
-                  <li className="flex items-start gap-2">
-                    <Check className="w-4 h-4 text-[#22c55e] shrink-0 mt-0.5" />
-                    <span className="text-sm text-[#EDEDED]">Edge inference on device</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <Check className="w-4 h-4 text-[#22c55e] shrink-0 mt-0.5" />
-                    <span className="text-sm text-[#EDEDED]">Model zoo access</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <Check className="w-4 h-4 text-[#22c55e] shrink-0 mt-0.5" />
-                    <span className="text-sm text-[#EDEDED]">Device profiling & analytics</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <Check className="w-4 h-4 text-[#22c55e] shrink-0 mt-0.5" />
-                    <span className="text-sm text-[#EDEDED]">Email support</span>
-                  </li>
+                  {['Edge inference on device', 'Model zoo access', 'Device profiling & analytics', 'Email support'].map(f => (
+                    <li key={f} className="flex items-start gap-2">
+                      <Check className="w-4 h-4 text-[#22c55e] shrink-0 mt-0.5" />
+                      <span className="text-sm text-[#EDEDED]">{f}</span>
+                    </li>
+                  ))}
                 </ul>
               </div>
-              {planType !== 'pure_edge' && (
-                <Button variant="outline" className="w-full gap-2">
-                  Downgrade
+              {!isActive && selectedPlan === 'pure_edge' && (
+                <Button
+                  onClick={(e) => { e.stopPropagation(); handleSubscribe('pure_edge'); }}
+                  disabled={checkoutLoading}
+                  className="w-full gap-2 bg-[#FF4D00] hover:bg-[#E63F00] text-white"
+                >
+                  {checkoutLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                  Subscribe to Pure Edge
                 </Button>
               )}
             </div>
 
             {/* Hybrid RAG Plan */}
-            <div className={`rounded-2xl p-6 border-2 transition-all ${
-              planType === 'hybrid_rag'
+            <div
+              onClick={() => !isActive && setSelectedPlan('hybrid_rag')}
+              className={`rounded-2xl p-6 border-2 transition-all ${!isActive ? 'cursor-pointer' : ''} ${
+              isActive && planType === 'hybrid_rag'
                 ? 'bg-[rgba(255,77,0,0.08)] border-[#22c55e]'
-                : 'bg-[rgba(0,0,0,0.2)] border-[rgba(255,255,255,0.1)]'
+                : !isActive && selectedPlan === 'hybrid_rag'
+                ? 'bg-[rgba(255,77,0,0.08)] border-[#FF4D00]'
+                : 'bg-[rgba(0,0,0,0.2)] border-[rgba(255,255,255,0.1)] hover:border-[rgba(255,255,255,0.2)]'
             }`}>
-              <h3 className="text-lg font-bold text-[#EDEDED] mb-4">Hybrid RAG</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-[#EDEDED]">Hybrid RAG</h3>
+                {isActive && planType === 'hybrid_rag' && <span className="text-xs bg-[#22c55e]/20 text-[#22c55e] px-2 py-0.5 rounded-full">Active</span>}
+                {!isActive && selectedPlan === 'hybrid_rag' && <span className="text-xs bg-[#FF4D00]/20 text-[#FF4D00] px-2 py-0.5 rounded-full">Selected</span>}
+              </div>
               <div className="mb-6">
                 <div className="flex items-baseline gap-2 mb-1">
                   <span className="text-4xl font-bold text-[#FF4D00]">$0.45</span>
@@ -678,64 +694,54 @@ export default function SettingsPage() {
               <div className="space-y-3 mb-6">
                 <p className="text-xs text-[#555555] uppercase font-semibold">Everything in Pure Edge, plus:</p>
                 <ul className="space-y-2">
-                  <li className="flex items-start gap-2">
-                    <Check className="w-4 h-4 text-[#22c55e] shrink-0 mt-0.5" />
-                    <span className="text-sm text-[#EDEDED]">RAG knowledge bases</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <Check className="w-4 h-4 text-[#22c55e] shrink-0 mt-0.5" />
-                    <span className="text-sm text-[#EDEDED]">Vector search</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <Check className="w-4 h-4 text-[#22c55e] shrink-0 mt-0.5" />
-                    <span className="text-sm text-[#EDEDED]">Document management</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <Check className="w-4 h-4 text-[#22c55e] shrink-0 mt-0.5" />
-                    <span className="text-sm text-[#EDEDED]">URL scraping & offline sync</span>
-                  </li>
+                  {['RAG knowledge bases', 'Vector search', 'Document management', 'URL scraping & offline sync'].map(f => (
+                    <li key={f} className="flex items-start gap-2">
+                      <Check className="w-4 h-4 text-[#22c55e] shrink-0 mt-0.5" />
+                      <span className="text-sm text-[#EDEDED]">{f}</span>
+                    </li>
+                  ))}
                 </ul>
               </div>
-              {planType !== 'hybrid_rag' && (
-                <Button className="w-full gap-2 bg-[#FF4D00] hover:bg-[#E63F00]">
-                  Upgrade
+              {!isActive && selectedPlan === 'hybrid_rag' && (
+                <Button
+                  onClick={(e) => { e.stopPropagation(); handleSubscribe('hybrid_rag'); }}
+                  disabled={checkoutLoading}
+                  className="w-full gap-2 bg-[#FF4D00] hover:bg-[#E63F00] text-white"
+                >
+                  {checkoutLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                  Subscribe to Hybrid RAG
                 </Button>
               )}
             </div>
           </div>
 
-          {/* Section 3: Credits & Discount */}
+          {/* Section 3: Subscription Status & Discount */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Credits */}
+            {/* Subscription Status */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
-                  <Coins className="w-4 h-4 text-[#FF4D00]" />
-                  Free Inferences
+                  <Zap className="w-4 h-4 text-[#FF4D00]" />
+                  Subscription
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
-                  <p className="text-xs text-[#555555] uppercase tracking-wider font-medium mb-2">
-                    {creditsBalance?.is_subscribed ? 'Subscription Status' : 'Free Inferences Remaining'}
-                  </p>
-                  {creditsBalance?.is_subscribed ? (
+                  <p className="text-xs text-[#555555] uppercase tracking-wider font-medium mb-2">Status</p>
+                  {subscriptionInfo?.is_subscribed ? (
                     <>
-                      <p className="text-3xl font-bold text-[#22c55e]">Unlimited</p>
-                      <p className="text-xs text-[#4ade80] mt-1">Active subscription — no limits</p>
+                      <p className="text-3xl font-bold text-[#22c55e]">Active</p>
+                      <p className="text-xs text-[#4ade80] mt-1">Unlimited inferences — {subscriptionInfo?.plan_type === 'hybrid_rag' ? 'Hybrid RAG' : 'Pure Edge'} plan</p>
+                    </>
+                  ) : isTrialActive ? (
+                    <>
+                      <p className="text-3xl font-bold text-[#60a5fa]">Trial</p>
+                      <p className="text-xs text-[#888888] mt-1">{billingStatus?.trial_days_remaining} days remaining</p>
                     </>
                   ) : (
                     <>
-                      <p className="text-3xl font-bold text-[#EDEDED]">
-                        {typeof creditsBalance?.balance === 'number' ? creditsBalance.balance : 100}
-                      </p>
-                      <p className="text-xs text-[#888888] mt-1">of 100 free inferences</p>
-                      <div className="w-full h-2 bg-[rgba(255,255,255,0.06)] rounded-full overflow-hidden mt-3">
-                        <div
-                          className="h-full bg-gradient-to-r from-[#FF4D00] to-[#FF6B35] transition-all"
-                          style={{ width: `${Math.max(0, Math.min(100, ((typeof creditsBalance?.balance === 'number' ? creditsBalance.balance : 100) / 100) * 100))}%` }}
-                        />
-                      </div>
+                      <p className="text-3xl font-bold text-[#ef4444]">Inactive</p>
+                      <p className="text-xs text-[#888888] mt-1">Subscribe to use SlyOS</p>
                     </>
                   )}
                 </div>

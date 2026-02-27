@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { getAnalytics, getDevices, getModels, getBillingStatus, getCreditsBalance } from '@/lib/api';
+import { getAnalytics, getDevices, getModels, getBillingStatus } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
@@ -14,7 +14,6 @@ export default function DashboardPage() {
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
   const [user, setUser] = useState<any>({});
   const [billing, setBilling] = useState<any>(null);
-  const [credits, setCredits] = useState<any>(null);
 
   useEffect(() => {
     Promise.all([
@@ -22,7 +21,6 @@ export default function DashboardPage() {
       getDevices().then(setDevices).catch(console.error),
       getModels().then(setModels).catch(console.error),
       getBillingStatus().then(setBilling).catch(console.error),
-      getCreditsBalance().then(setCredits).catch(console.error),
     ]);
 
     const saved = localStorage.getItem('selectedModels');
@@ -93,11 +91,11 @@ export default function DashboardPage() {
 
         <div className="p-5 border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] rounded-xl">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-medium text-[#888888] uppercase">Credits</span>
+            <span className="text-xs font-medium text-[#888888] uppercase">Cost Saved</span>
             <Award className="w-4 h-4 text-[#22c55e]" />
           </div>
-          <div className="text-2xl font-bold text-[#EDEDED]">{credits?.is_subscribed ? '∞' : (typeof credits?.balance === 'number' ? credits.balance : 100)}</div>
-          <p className="text-xs text-[#555555] mt-1">{credits?.is_subscribed ? 'Unlimited' : 'remaining'}</p>
+          <div className="text-2xl font-bold text-[#EDEDED]">${analytics?.costSavings?.estimatedCostSaved?.toFixed(2) || '0.00'}</div>
+          <p className="text-xs text-[#555555] mt-1">vs cloud API</p>
         </div>
       </div>
 
