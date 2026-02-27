@@ -116,6 +116,49 @@ const response = await sdk.generate('quantum-1.7b',
 
 ---
 
+#### `chatCompletion(modelId, request)`
+OpenAI-compatible chat completions.
+
+---
+
+#### `transcribe(modelId, audio, options?)`
+Speech-to-text using voicecore models.
+
+---
+
+#### `recommendModel(category?)`
+Returns best model for the current device's hardware.
+
+---
+
+#### `searchModels(query, options?)`
+Search HuggingFace Hub for ONNX-compatible models.
+
+---
+
+#### `getDeviceProfile()`
+Returns the device's hardware profile (CPU, RAM, GPU, screen, network).
+
+---
+
+#### `getModelContextWindow()`
+Returns current model's context window size in tokens.
+
+---
+
+#### `getDeviceId()`
+Returns the persistent device identifier.
+
+---
+
+#### `destroy()`
+Flushes pending telemetry and cleans up timers. Call before shutting down.
+```javascript
+await sdk.destroy(); // Ensures telemetry is sent
+```
+
+---
+
 ## 🌐 Platform Support
 
 | Platform | Status | Notes |
@@ -125,7 +168,7 @@ const response = await sdk.generate('quantum-1.7b',
 | **Edge** | ✅ Supported | Chromium-based |
 | **Firefox** | ⚠️ Limited | Some models work |
 | **Node.js** | ✅ Supported | v18+ |
-| **React Native** | 🚧 Coming Soon | Q2 2026 |
+| **React Native** | 🚧 Coming Soon | Q3 2026 |
 
 ---
 
@@ -232,14 +275,14 @@ const detailed = await sdk.generate('quantum-3b', 'Complex question?');
 
 ## 📊 Performance
 
-### Benchmarks (Quantum 360M)
+### Benchmarks (Quantum 1.7B)
 
 | Metric | Browser | Node.js |
 |--------|---------|---------|
 | First load | 60-120s | 30-60s |
 | Cached load | <1s | <0.5s |
-| Inference | 35 tok/s | 50 tok/s |
-| Memory | 500MB | 300MB |
+| Inference | 10-15 tok/s | 15-25 tok/s |
+| Memory | 1.2GB | 900MB |
 
 ---
 
@@ -271,7 +314,7 @@ const detailed = await sdk.generate('quantum-3b', 'Complex question?');
 
 - API keys stored client-side (localStorage)
 - All inference happens locally (private)
-- Telemetry sent to SlyOS (anonymized)
+- Inference telemetry batched locally (flushed every 10 inferences or 60s)
 - No user data sent to cloud
 
 ---
@@ -281,7 +324,7 @@ const detailed = await sdk.generate('quantum-3b', 'Complex question?');
 - **Package:** `@emilshirokikh/slyos-sdk`
 - **Version:** 1.4.0
 - **License:** MIT
-- **Size:** 13.5 KB (unpacked)
+- **Size:** 168 KB (unpacked)
 - **Dependencies:** axios, @huggingface/transformers
 
 ---

@@ -31,6 +31,9 @@ Perfect for building privacy-first applications, offline-capable services, and c
 ☁️ **Cloud Fallback** — Gracefully fall back to cloud APIs when needed
 🗣️ **LLM + STT** — Support for both language and speech models
 📱 **Multi-Platform** — Web browsers, Node.js, and mobile (coming soon)
+🧠 **Device Intelligence** — SlyOS Score, hardware fingerprinting, performance benchmarking
+💡 **Community Ideas** — Built-in feature request and voting system
+📚 **RAG Knowledge Bases** — Upload documents and URLs for context-aware responses
 
 ## Quick Start
 
@@ -69,7 +72,7 @@ console.log(response);
 
 ✅ AI runs on the user's device
 ✅ Works offline after initial download
-✅ Zero cost per message
+✅ No per-inference charges
 ✅ Sub-second response times
 ✅ Complete privacy — data stays local
 
@@ -102,16 +105,15 @@ console.log(response.choices[0].message.content);
 Invoke models using Bedrock patterns:
 
 ```javascript
-const response = await sdk.bedrockInvoke({
-  modelId: 'quantum-3b',
-  body: JSON.stringify({
-    prompt: 'What is machine learning?',
-    maxTokens: 150
-  })
+const response = await sdk.bedrockInvoke('quantum-3b', {
+  inputText: 'What is machine learning?',
+  textGenerationConfig: {
+    maxTokenCount: 150,
+    temperature: 0.7
+  }
 });
 
-const result = JSON.parse(response.body);
-console.log(result.completion);
+console.log(response.results[0].outputText);
 ```
 
 ## Cloud Fallback
@@ -122,9 +124,9 @@ Automatically fall back to cloud APIs when on-device inference isn't available:
 const sdk = new SlyOS({
   apiKey: 'sk_your_api_key_here',
   fallback: {
-    enabled: true,
-    provider: 'openai', // or 'bedrock'
-    openaiApiKey: process.env.OPENAI_API_KEY
+    provider: 'openai',
+    apiKey: process.env.OPENAI_API_KEY,
+    model: 'gpt-4o-mini'
   }
 });
 
@@ -138,9 +140,9 @@ SlyOS offers transparent, device-based pricing with no per-inference charges:
 
 | Plan | Price | Features |
 |------|-------|----------|
-| **30-Day Free Trial** | Free | All features, 100 free inferences |
-| **Pure Edge** | $0.15/device/month | Edge inference, model zoo, device profiling, analytics |
-| **Hybrid RAG** | $0.45/device/month | Everything in Pure Edge + RAG knowledge bases, vector search, document management, URL scraping, offline sync |
+| **Free Trial** | Free (30 days) | All features included |
+| **Pure Edge** | $0.15/device/month | On-device inference, model zoo, device profiling, analytics, device intelligence |
+| **Hybrid RAG** | $0.45/device/month | Everything in Pure Edge + RAG knowledge bases, vector search, document upload, URL scraping, offline sync |
 
 All devices are billed equally. Choose Pure Edge for core AI inference or upgrade to Hybrid RAG for advanced knowledge management features.
 
@@ -152,10 +154,10 @@ All devices are billed equally. Choose Pure Edge for core AI inference or upgrad
 | **quantum-3b** | LLM | 1.6 GB | 10 tok/sec | Desktop & tablet applications |
 | **quantum-code-3b** | Code LLM | 1.6 GB | 10 tok/sec | Code generation & completion |
 | **quantum-8b** | LLM | 4.2 GB | 5 tok/sec | Server-side inference, high quality |
-| **voicecore-base** | Speech-to-Text | 145 MB | 1x | Voice features & transcription |
-| **voicecore-small** | Speech-to-Text | 75 MB | 2x | Lightweight voice on mobile |
+| **voicecore-base** | Speech-to-Text | 40 MB | 1x | Voice features & transcription |
+| **voicecore-small** | Speech-to-Text | 100 MB | 2x | Lightweight voice on mobile |
 
-All models are quantized (Q4) for optimal on-device performance.
+Sizes shown are Q4 (most compressed). Higher precision quantizations available.
 
 ## Device Requirements
 
@@ -169,9 +171,7 @@ All models are quantized (Q4) for optimal on-device performance.
 
 ## Dashboard
 
-SlyOS includes a management dashboard for monitoring devices, managing models, and viewing analytics.
-
-Visit the [SlyOS Documentation](https://docs.slyos.world) for dashboard access and detailed guides.
+SlyOS includes a management dashboard at [dashboard-khaki-iota-54.vercel.app](https://dashboard-khaki-iota-54.vercel.app) for monitoring devices, managing models, configuring RAG knowledge bases, and viewing analytics.
 
 ## API Reference
 
@@ -183,8 +183,12 @@ Visit the [SlyOS Documentation](https://docs.slyos.world) for dashboard access a
 **`chatCompletion(options)`** — OpenAI-compatible chat API
 **`transcribe(modelId, audio)`** — Speech-to-text transcription
 **`bedrockInvoke(options)`** — AWS Bedrock-compatible invoke
+**`recommendModel(category?)`** — Get best model recommendation for device
+**`searchModels(query, options?)`** — Search HuggingFace model hub
 **`getDeviceProfile()`** — Get device capabilities & specs
-**`getMetrics()`** — Retrieve usage metrics & performance stats
+**`getModelContextWindow()`** — Get current model's context window size
+**`getDeviceId()`** — Get persistent device identifier
+**`destroy()`** — Flush telemetry and clean up resources
 
 See the [full API documentation](https://docs.slyos.world/api) for complete method signatures and options.
 
@@ -218,7 +222,7 @@ Built with:
 ## Support
 
 - **Documentation:** [docs.slyos.world](https://docs.slyos.world)
-- **GitHub Issues:** [Report issues here](https://github.com/slyos/slyos/issues)
+- **GitHub Issues:** [Report issues here](https://github.com/BeltoAI/sly.os/issues)
 - **npm Package:** [@emilshirokikh/slyos-sdk](https://www.npmjs.com/package/@emilshirokikh/slyos-sdk)
 
 ---
