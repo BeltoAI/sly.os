@@ -157,6 +157,27 @@ Flushes pending telemetry and cleans up timers. Call before shutting down.
 await sdk.destroy(); // Ensures telemetry is sent
 ```
 
+#### `getSdkVersion()`
+Returns the current SDK version string (e.g. `'1.4.0'`).
+
+#### `getAvailableModels()`
+Returns available models grouped by category (`llm`, `stt`).
+
+#### `canRunModel(modelId, quant?)`
+Checks if the current device can run a specific model based on hardware profile.
+
+#### `ragQuery(modelId, knowledgeBaseId, query, options?)`
+Performs a RAG query against a cloud-indexed knowledge base. Requires Hybrid RAG plan.
+
+#### `ragQueryLocal(modelId, knowledgeBaseId, query, options?)`
+Performs a RAG query using locally-cached embeddings for offline-capable retrieval.
+
+#### `ragQueryOffline(modelId, knowledgeBaseId, query, options?)`
+Fully offline RAG query using pre-synced knowledge base data.
+
+#### `syncKnowledgeBase(knowledgeBaseId)`
+Downloads and caches a knowledge base locally for offline RAG queries.
+
 ---
 
 ## 🌐 Platform Support

@@ -664,11 +664,16 @@ class SlyOS {
   // ── Device Analysis ─────────────────────────────────────────────
 
   async analyzeDevice(): Promise<DeviceProfile> {
-    this.emitProgress('profiling', 10, 'Analyzing device capabilities...');
-    this.deviceProfile = await profileDevice();
-    this.emitProgress('profiling', 100, `Device: ${this.deviceProfile.cpuCores} cores, ${Math.round(this.deviceProfile.memoryMB / 1024 * 10) / 10}GB RAM`);
-    this.emitEvent('device_profiled', this.deviceProfile);
-    return this.deviceProfile;
+    try {
+      this.emitProgress('profiling', 10, 'Analyzing device capabilities...');
+      this.deviceProfile = await profileDevice();
+      this.emitProgress('profiling', 100, `Device: ${this.deviceProfile.cpuCores} cores, ${Math.round(this.deviceProfile.memoryMB / 1024 * 10) / 10}GB RAM`);
+      this.emitEvent('device_profiled', this.deviceProfile);
+      return this.deviceProfile;
+    } catch (err: any) {
+      this.emitEvent('error', { method: 'analyzeDevice', error: err.message });
+      throw new Error(`Device analysis failed: ${err.message}`);
+    }
   }
 
   getDeviceProfile(): DeviceProfile | null {
@@ -1052,7 +1057,11 @@ class SlyOS {
       await this.loadModel(modelId);
     }
 
-    const { pipe, info, contextWindow } = this.models.get(modelId);
+    const loaded = this.models.get(modelId);
+    if (!loaded) {
+      throw new Error(`Model "${modelId}" failed to load. Check your connection and model ID.`);
+    }
+    const { pipe, info, contextWindow } = loaded;
     if (info.category !== 'llm') {
       throw new Error(`Model "${modelId}" is not an LLM. Use transcribe() for STT models.`);
     }
@@ -1143,7 +1152,11 @@ class SlyOS {
       await this.loadModel(modelId);
     }
 
-    const { pipe, info } = this.models.get(modelId);
+    const loaded = this.models.get(modelId);
+    if (!loaded) {
+      throw new Error(`Model "${modelId}" failed to load. Check your connection and model ID.`);
+    }
+    const { pipe, info } = loaded;
     if (info.category !== 'stt') {
       throw new Error(`Model "${modelId}" is not an STT model. Use generate() for LLMs.`);
     }
