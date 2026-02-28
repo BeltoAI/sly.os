@@ -1000,7 +1000,7 @@ app.put('/api/auth/organization', authenticate, async (req, res) => {
   }
 });
 
-app.post('/api/devices/register', authenticate, checkBillingStatus, async (req, res) => {
+app.post('/api/devices/register', authenticate, async (req, res) => {
   const {
     device_id, platform, os_version, total_memory_mb, cpu_cores, country,
     // New device intelligence fields
@@ -1119,7 +1119,7 @@ app.post('/api/devices/register', authenticate, checkBillingStatus, async (req, 
   }
 });
 
-app.get('/api/devices', authenticate, checkBillingStatus, async (req, res) => {
+app.get('/api/devices', authenticate, async (req, res) => {
   try {
     const result = await db.query(`
       SELECT d.*, COUNT(dm.id) as model_count,
@@ -1542,7 +1542,7 @@ app.delete('/api/ideas/:ideaId', authenticate, async (req, res) => {
   }
 });
 
-app.get('/api/models', authenticate, checkBillingStatus, async (req, res) => {
+app.get('/api/models', authenticate, async (req, res) => {
   try {
     const result = await db.query(`
       SELECT m.*, COUNT(dm.id) as device_count, SUM(dm.total_inferences) as total_inferences
@@ -1556,7 +1556,7 @@ app.get('/api/models', authenticate, checkBillingStatus, async (req, res) => {
   }
 });
 
-app.get('/api/analytics/overview', authenticate, checkBillingStatus, async (req, res) => {
+app.get('/api/analytics/overview', authenticate, async (req, res) => {
   try {
     const devices = await db.query('SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE last_seen > NOW() - INTERVAL \'24 hours\') as active FROM devices WHERE organization_id = $1', [req.user.org_id]);
 
@@ -1609,7 +1609,7 @@ app.get('/api/analytics/overview', authenticate, checkBillingStatus, async (req,
   }
 });
 
-app.post('/api/telemetry', authenticate, checkBillingStatus, async (req, res) => {
+app.post('/api/telemetry', authenticate, async (req, res) => {
   const { device_id, model_id, event_type, latency_ms, tokens_generated, success = true } = req.body;
   try {
     const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || 'eshir010@ucr.edu').split(',').map(e => e.trim().toLowerCase());
@@ -1647,6 +1647,10 @@ app.post('/api/telemetry', authenticate, checkBillingStatus, async (req, res) =>
 // Billing endpoints
 app.get('/api/billing/status', authenticate, async (req, res) => {
   try {
+    // Admin accounts are always treated as active with hybrid_rag (full access)
+    const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || 'eshir010@ucr.edu').split(',').map(e => e.trim().toLowerCase());
+    const isAdmin = req.user && ADMIN_EMAILS.includes(req.user.email?.toLowerCase());
+
     const orgResult = await db.query(
       'SELECT subscription_status, trial_ends_at, plan_type FROM organizations WHERE id = $1',
       [req.user.org_id]
@@ -1655,6 +1659,12 @@ app.get('/api/billing/status', authenticate, async (req, res) => {
       return res.status(404).json({ error: 'Organization not found' });
     }
     const org = orgResult.rows[0];
+
+    // Override for admin — always show active hybrid_rag
+    if (isAdmin) {
+      org.subscription_status = 'active';
+      org.plan_type = org.plan_type || 'hybrid_rag';
+    }
 
     const deviceResult = await db.query(
       'SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE enabled = true) as enabled_count FROM devices WHERE organization_id = $1',
