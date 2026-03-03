@@ -165,7 +165,7 @@ actor NetworkClient {
             os_version: profile.osVersion,
             total_memory_mb: profile.memoryMB,
             cpu_cores: profile.cpuCores,
-            has_gpu: false,
+            has_gpu: profile.gpuName != nil,
             recommended_quant: profile.recommendedQuant.rawValue,
             max_context_window: profile.maxContextWindow
         )
@@ -242,6 +242,37 @@ actor NetworkClient {
             _ = response as? HTTPURLResponse
         } catch {
             // Silently ignore telemetry errors
+        }
+    }
+
+    /// Send batch telemetry metrics to SlyOS backend.
+    func reportBatchTelemetry(
+        deviceId: String,
+        metrics: [[String: Any]]
+    ) async throws {
+        guard let token = authToken else { return }
+
+        let endpoint = "\(apiUrl)/api/devices/telemetry"
+        guard let url = URL(string: endpoint) else { return }
+
+        let payload: [String: Any] = [
+            "device_id": deviceId,
+            "metrics": metrics,
+        ]
+
+        let jsonData = try JSONSerialization.data(withJSONObject: payload)
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        urlRequest.httpBody = jsonData
+
+        do {
+            let (_, response) = try await session.data(for: urlRequest)
+            _ = response as? HTTPURLResponse
+        } catch {
+            // Best-effort telemetry
         }
     }
 

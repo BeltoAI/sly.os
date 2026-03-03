@@ -2,21 +2,23 @@ package com.slyos
 
 import android.app.ActivityManager
 import android.content.Context
+import android.opengl.GLES31
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
+import java.security.MessageDigest
+import java.util.UUID
 import kotlin.math.max
 import kotlin.math.min
 
 /**
  * Profiles Android device capabilities for optimal model selection and resource allocation.
- * Provides information about CPU, RAM, storage, and recommends appropriate quantization levels.
+ * Provides information about CPU, RAM, storage, GPU, and recommends appropriate quantization levels.
  */
 class DeviceProfiler(private val context: Context) {
 
     /**
      * Creates a device profile with current hardware capabilities.
-     * This function should be called on a background thread to avoid blocking the main thread.
      *
      * @return DeviceProfile with detected device capabilities
      */
@@ -24,7 +26,7 @@ class DeviceProfiler(private val context: Context) {
         val cpuCores = Runtime.getRuntime().availableProcessors()
         val memoryMB = getTotalMemoryMB()
         val estimatedStorageMB = getAvailableStorageMB()
-        val osVersion = Build.VERSION.SDK_INT
+        val gpuInfo = getGPUInfo()
         val recommendedQuant = selectQuantization(memoryMB, "quantum-1.7b")
         val maxContextWindow = recommendContextWindow(memoryMB, recommendedQuant)
 
@@ -34,18 +36,15 @@ class DeviceProfiler(private val context: Context) {
             estimatedStorageMB = estimatedStorageMB,
             platform = "android",
             os = "${Build.MANUFACTURER} ${Build.MODEL} (API ${Build.VERSION.SDK_INT})",
-            osVersion = osVersion,
+            osVersion = Build.VERSION.SDK_INT,
             recommendedQuant = recommendedQuant,
             maxContextWindow = maxContextWindow,
-            hasGPU = detectGPU()
+            hasGPU = gpuInfo.hasGPU,
+            gpuRenderer = gpuInfo.renderer,
+            gpuVramMB = gpuInfo.estimatedVramMB
         )
     }
 
-    /**
-     * Gets the total system RAM available to the app.
-     *
-     * @return Total RAM in megabytes
-     */
     private fun getTotalMemoryMB(): Int {
         val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
         val memInfo = ActivityManager.MemoryInfo()
@@ -53,11 +52,6 @@ class DeviceProfiler(private val context: Context) {
         return (memInfo.totalMem / (1024 * 1024)).toInt()
     }
 
-    /**
-     * Gets available storage space on the device.
-     *
-     * @return Available storage in megabytes
-     */
     private fun getAvailableStorageMB(): Int {
         return try {
             val externalFilesDir = context.getExternalFilesDir(null)
@@ -65,68 +59,121 @@ class DeviceProfiler(private val context: Context) {
                 val stat = StatFs(externalFilesDir.absolutePath)
                 (stat.availableBlocksLong * stat.blockSizeLong / (1024 * 1024)).toInt()
             } else {
-                // Fallback to internal storage
                 val stat = StatFs(context.filesDir.absolutePath)
                 (stat.availableBlocksLong * stat.blockSizeLong / (1024 * 1024)).toInt()
             }
         } catch (e: Exception) {
-            10000 // Default fallback
+            10000
         }
     }
 
     /**
-     * Detects if the device has a GPU available for acceleration.
-     * Note: This is a basic check and may not reflect actual GPU capabilities.
-     *
-     * @return true if GPU hardware is likely available
+     * Detect GPU information using OpenGL ES.
      */
-    private fun detectGPU(): Boolean {
-        // Basic GPU detection based on common patterns
-        val model = Build.MODEL.lowercase()
-        val device = Build.DEVICE.lowercase()
+    private fun getGPUInfo(): GPUInfo {
+        return try {
+            val renderer = GLES31.glGetString(GLES31.GL_RENDERER)
+            val vendor = GLES31.glGetString(GLES31.GL_VENDOR)
 
-        // Most modern devices have GPUs, but we can check specific models
-        return !(model.contains("emulator") || device.contains("emulator"))
+            val hasGPU = renderer != null && !renderer.contains("emulator", ignoreCase = true)
+
+            // Estimate VRAM based on GPU family
+            val vramMB = when {
+                renderer == null -> 0
+                renderer.contains("Adreno 7", ignoreCase = true) -> 4096
+                renderer.contains("Adreno 6", ignoreCase = true) -> 3072
+                renderer.contains("Adreno 5", ignoreCase = true) -> 2048
+                renderer.contains("Mali-G7", ignoreCase = true) -> 4096
+                renderer.contains("Mali-G6", ignoreCase = true) -> 3072
+                renderer.contains("Mali", ignoreCase = true) -> 2048
+                renderer.contains("PowerVR", ignoreCase = true) -> 2048
+                renderer.contains("Xclipse", ignoreCase = true) -> 4096
+                renderer.contains("Immortalis", ignoreCase = true) -> 6144
+                else -> 1024
+            }
+
+            GPUInfo(
+                hasGPU = hasGPU,
+                renderer = if (renderer != null && vendor != null) "$vendor $renderer" else renderer,
+                estimatedVramMB = vramMB
+            )
+        } catch (e: Exception) {
+            // OpenGL may not be initialized — detect via model name
+            val model = Build.MODEL.lowercase()
+            val hasGPU = !(model.contains("emulator") || model.contains("sdk_gphone"))
+            GPUInfo(hasGPU = hasGPU, renderer = null, estimatedVramMB = 0)
+        }
     }
 
+    private data class GPUInfo(
+        val hasGPU: Boolean,
+        val renderer: String?,
+        val estimatedVramMB: Int
+    )
+
+    // ──────────────────────────────────────────────────────────────────
+
     companion object {
+        private const val PREFS_NAME = "slyos_device"
+        private const val KEY_DEVICE_ID = "device_id"
+
         /**
-         * Selects the optimal quantization level based on available memory.
-         * Strategy: For LLMs, cap at Q4 for ONNX/WASM compatibility.
-         * For STT models, allow higher precision when sufficient memory is available.
-         *
-         * @param memoryMB Available RAM in megabytes
-         * @param modelId Model identifier to check requirements
-         * @return Optimal quantization level
+         * Get or create a persistent device ID.
+         * Stored in SharedPreferences and survives app restarts.
+         */
+        fun getOrCreateDeviceId(context: Context): String {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val existing = prefs.getString(KEY_DEVICE_ID, null)
+            if (existing != null) return existing
+
+            val deviceId = "device-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(12)}"
+            prefs.edit().putString(KEY_DEVICE_ID, deviceId).apply()
+            return deviceId
+        }
+
+        /**
+         * Generate a device fingerprint from stable hardware signals.
+         */
+        fun generateFingerprint(): String {
+            val components = listOf(
+                Build.MODEL,
+                Build.MANUFACTURER,
+                Build.BRAND,
+                Build.HARDWARE,
+                Runtime.getRuntime().availableProcessors().toString(),
+                Build.SUPPORTED_ABIS.joinToString(","),
+                Build.FINGERPRINT
+            )
+
+            val joined = components.joinToString("|")
+            return sha256(joined).take(32)
+        }
+
+        private fun sha256(input: String): String {
+            val md = MessageDigest.getInstance("SHA-256")
+            val digest = md.digest(input.toByteArray())
+            return digest.joinToString("") { "%02x".format(it) }
+        }
+
+        /**
+         * Selects optimal quantization level based on available memory.
          */
         fun selectQuantization(memoryMB: Int, modelId: String): QuantizationLevel {
             val modelInfo = ModelRegistry.getModel(modelId) ?: return QuantizationLevel.Q4
 
-            // For LLMs, use Q4 as the safest option
             if (modelInfo.category == ModelCategory.LLM) {
                 return QuantizationLevel.Q4
             }
 
-            // For STT models, try from best quality down
             val quantizations = listOf(QuantizationLevel.FP16, QuantizationLevel.Q8, QuantizationLevel.Q4)
             for (quant in quantizations) {
                 val requiredMB = modelInfo.minRAM_MB[quant.toQueryString()] ?: continue
-                if (memoryMB >= requiredMB) {
-                    return quant
-                }
+                if (memoryMB >= requiredMB) return quant
             }
 
-            return QuantizationLevel.Q4 // Fallback
+            return QuantizationLevel.Q4
         }
 
-        /**
-         * Recommends context window size based on available memory and quantization.
-         * More RAM + lower bit depth = larger context window.
-         *
-         * @param memoryMB Available RAM in megabytes
-         * @param quant Quantization level
-         * @return Maximum recommended context window in tokens
-         */
         fun recommendContextWindow(memoryMB: Int, quant: QuantizationLevel): Int {
             val base = when (quant) {
                 QuantizationLevel.Q4 -> 1024
@@ -143,14 +190,6 @@ class DeviceProfiler(private val context: Context) {
             }
         }
 
-        /**
-         * Checks if a model can run on this device with given quantization.
-         *
-         * @param memoryMB Available RAM in megabytes
-         * @param modelId Model identifier
-         * @param quant Quantization level (optional, will auto-select if not provided)
-         * @return Pair<Boolean, String> - (canRun, reason)
-         */
         fun canRunModel(memoryMB: Int, modelId: String, quant: QuantizationLevel? = null): Pair<Boolean, String> {
             val modelInfo = ModelRegistry.getModel(modelId)
                 ?: return Pair(false, "Unknown model: $modelId")
@@ -160,14 +199,8 @@ class DeviceProfiler(private val context: Context) {
                 ?: return Pair(false, "Quantization level not supported")
 
             return when {
-                memoryMB < requiredMB -> Pair(
-                    false,
-                    "Not enough RAM for ${selectedQuant.name} (need ${requiredMB}MB, have ${memoryMB}MB)"
-                )
-                memoryMB < modelInfo.minRAM_MB["q4"]!! -> Pair(
-                    false,
-                    "Model requires at least ${modelInfo.minRAM_MB["q4"]}MB RAM even at Q4"
-                )
+                memoryMB < requiredMB -> Pair(false, "Not enough RAM for ${selectedQuant.name} (need ${requiredMB}MB, have ${memoryMB}MB)")
+                memoryMB < (modelInfo.minRAM_MB["q4"] ?: 0) -> Pair(false, "Model requires at least ${modelInfo.minRAM_MB["q4"]}MB RAM even at Q4")
                 else -> Pair(true, "OK at ${selectedQuant.name} precision")
             }
         }

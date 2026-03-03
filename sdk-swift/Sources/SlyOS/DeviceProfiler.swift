@@ -6,18 +6,26 @@ import UIKit
 import Cocoa
 #endif
 
+#if canImport(Metal)
+import Metal
+#endif
+
 // MARK: - Device Profiler
 
-/// Handles device profiling and capability detection
+/// Handles device profiling and capability detection for iOS and macOS.
+/// Detects CPU, RAM, storage, GPU (via Metal), screen, and network capabilities.
 public final class DeviceProfiler: Sendable {
-    /// Profile the current device
-    public static func profileDevice() async -> DeviceProfile {
+
+    /// Profile the current device with full hardware detection.
+    public static func profileDevice() -> DeviceProfile {
         let cpuCores = ProcessInfo.processInfo.processorCount
         let memoryBytes = ProcessInfo.processInfo.physicalMemory
         let memoryMB = Int(memoryBytes / (1024 * 1024))
 
-        let estimatedStorageMB = await getStorageInfo()
+        let estimatedStorageMB = getStorageInfo()
         let (platform, osVersion) = getOSInfo()
+        let gpuInfo = getGPUInfo()
+        let screenInfo = getScreenInfo()
 
         let recommendedQuant = selectQuantization(memoryMB: memoryMB, modelId: "quantum-1.7b")
         let maxContextWindow = recommendContextWindow(memoryMB: memoryMB, quant: recommendedQuant)
@@ -29,12 +37,18 @@ public final class DeviceProfiler: Sendable {
             platform: platform,
             osVersion: osVersion,
             recommendedQuant: recommendedQuant,
-            maxContextWindow: maxContextWindow
+            maxContextWindow: maxContextWindow,
+            gpuName: gpuInfo.name,
+            gpuVramMB: gpuInfo.vramMB,
+            screenWidth: screenInfo.width,
+            screenHeight: screenInfo.height,
+            pixelRatio: screenInfo.pixelRatio
         )
     }
 
-    /// Get device storage information
-    private static func getStorageInfo() async -> Int {
+    // MARK: - Storage Info
+
+    private static func getStorageInfo() -> Int {
         #if os(iOS) || os(macOS)
         do {
             let fileManager = FileManager.default
@@ -42,57 +56,115 @@ public final class DeviceProfiler: Sendable {
 
             if let url = paths.last {
                 let attributes = try fileManager.attributesOfFileSystem(forPath: url.path)
-
                 if let freeSpace = attributes[.systemFreeSize] as? NSNumber {
                     return Int(freeSpace.int64Value / (1024 * 1024))
                 }
             }
         } catch {
-            // Fallback to conservative estimate
+            // Fallback
         }
         #endif
-
-        return 5000 // Conservative default: 5GB
+        return 5000
     }
 
-    /// Get platform and OS version information
+    // MARK: - OS Info
+
     private static func getOSInfo() -> (platform: String, osVersion: String) {
         #if os(iOS)
         let device = UIDevice.current
         let platform = "iOS"
         let osVersion = "\(device.systemVersion) (\(device.model))"
         return (platform, osVersion)
-
         #elseif os(macOS)
         let platform = "macOS"
         let version = ProcessInfo.processInfo.operatingSystemVersion
         let osVersion = "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
         return (platform, osVersion)
-
         #else
         return ("Unknown", "Unknown")
+        #endif
+    }
+
+    // MARK: - GPU Detection via Metal
+
+    private static func getGPUInfo() -> (name: String?, vramMB: Int) {
+        #if canImport(Metal)
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            return (nil, 0)
+        }
+
+        let name = device.name
+
+        // Estimate VRAM from GPU name
+        var vramMB = 0
+        if name.contains("M4") {
+            vramMB = 16384
+        } else if name.contains("M3") {
+            vramMB = 12288
+        } else if name.contains("M2") {
+            vramMB = 8192
+        } else if name.contains("M1") {
+            vramMB = 8192
+        } else if name.contains("A17") || name.contains("A16") {
+            vramMB = 6144
+        } else if name.contains("A15") || name.contains("A14") {
+            vramMB = 4096
+        } else if name.contains("A13") || name.contains("A12") {
+            vramMB = 3072
+        } else {
+            // Generic Metal device — estimate based on system RAM
+            let systemRAM = Int(ProcessInfo.processInfo.physicalMemory / (1024 * 1024))
+            vramMB = systemRAM / 2 // Unified memory: GPU shares system RAM
+        }
+
+        return (name, vramMB)
+        #else
+        return (nil, 0)
+        #endif
+    }
+
+    // MARK: - Screen Detection
+
+    private static func getScreenInfo() -> (width: Int, height: Int, pixelRatio: Float) {
+        #if os(iOS)
+        let screen = UIScreen.main
+        let bounds = screen.bounds
+        let scale = screen.scale
+        return (
+            width: Int(bounds.width * scale),
+            height: Int(bounds.height * scale),
+            pixelRatio: Float(scale)
+        )
+        #elseif os(macOS)
+        if let screen = NSScreen.main {
+            let frame = screen.frame
+            let scale = screen.backingScaleFactor
+            return (
+                width: Int(frame.width * scale),
+                height: Int(frame.height * scale),
+                pixelRatio: Float(scale)
+            )
+        }
+        return (width: 0, height: 0, pixelRatio: 1.0)
+        #else
+        return (width: 0, height: 0, pixelRatio: 1.0)
         #endif
     }
 }
 
 // MARK: - Quantization Selection
 
-/// Select appropriate quantization level based on available RAM
-/// - Parameters:
-///   - memoryMB: Total available RAM in MB
-///   - modelId: Model identifier to check requirements
-/// - Returns: Recommended QuantizationLevel
 public func selectQuantization(memoryMB: Int, modelId: String) -> QuantizationLevel {
     guard let info = modelRegistry[modelId] else {
         return .q4
     }
 
-    // For LLM models, cap at Q4 for safety with ONNX/Core ML
+    // For LLM models, cap at Q4 for ONNX stability
     if info.category == .llm {
         return .q4
     }
 
-    // For STT models, try higher quality quantizations
+    // For STT models, try higher quality
     let quantLevels: [QuantizationLevel] = [.fp16, .q8, .q4]
     for quantLevel in quantLevels {
         if memoryMB >= info.minRAM_MB[quantLevel, default: Int.max] {
@@ -100,16 +172,10 @@ public func selectQuantization(memoryMB: Int, modelId: String) -> QuantizationLe
         }
     }
 
-    return .q4 // Fallback
+    return .q4
 }
 
-/// Determine appropriate context window size based on device RAM and quantization
-/// - Parameters:
-///   - memoryMB: Total available RAM in MB
-///   - quant: Quantization level being used
-/// - Returns: Maximum recommended context window in tokens
 public func recommendContextWindow(memoryMB: Int, quant: QuantizationLevel) -> Int {
-    // Base context size depends on quantization
     let base = switch quant {
     case .q4: 1024
     case .q8: 2048
@@ -117,55 +183,32 @@ public func recommendContextWindow(memoryMB: Int, quant: QuantizationLevel) -> I
     case .fp32: 8192
     }
 
-    // Scale based on available RAM
-    if memoryMB >= 16384 {
-        return min(base * 4, 32768)
-    } else if memoryMB >= 8192 {
-        return min(base * 2, 16384)
-    } else if memoryMB >= 4096 {
-        return base
-    } else {
-        return max(512, base / 2)
-    }
+    if memoryMB >= 16384 { return min(base * 4, 32768) }
+    if memoryMB >= 8192 { return min(base * 2, 16384) }
+    if memoryMB >= 4096 { return base }
+    return max(512, base / 2)
 }
 
 // MARK: - Model Capability Checking
 
-/// Result of checking if a device can run a specific model
 public struct ModelCompatibilityCheck: Sendable {
-    /// Whether the device can run this model configuration
     public let canRun: Bool
-
-    /// Explanation of the check result
     public let reason: String
-
-    /// Recommended quantization if the requested one isn't available
     public let recommendedQuant: QuantizationLevel
 }
 
-/// Check if device can run a specific model with given quantization
-/// - Parameters:
-///   - modelId: Model identifier
-///   - quantization: Requested quantization level (nil for auto-select)
-///   - deviceProfile: Device profile with capabilities
-/// - Returns: ModelCompatibilityCheck with result and recommendation
 public func checkModelCompatibility(
     modelId: String,
     quantization: QuantizationLevel? = nil,
     deviceProfile: DeviceProfile
 ) -> ModelCompatibilityCheck {
     guard let info = modelRegistry[modelId] else {
-        return ModelCompatibilityCheck(
-            canRun: false,
-            reason: "Unknown model '\(modelId)'",
-            recommendedQuant: .q4
-        )
+        return ModelCompatibilityCheck(canRun: false, reason: "Unknown model '\(modelId)'", recommendedQuant: .q4)
     }
 
     let memoryMB = deviceProfile.memoryMB
     let bestQuant = selectQuantization(memoryMB: memoryMB, modelId: modelId)
 
-    // If specific quantization requested, check if feasible
     if let requestedQuant = quantization {
         if memoryMB < info.minRAM_MB[requestedQuant, default: Int.max] {
             let needed = info.minRAM_MB[requestedQuant, default: 0]
@@ -177,7 +220,6 @@ public func checkModelCompatibility(
         }
     }
 
-    // Check if even Q4 is feasible
     if memoryMB < info.minRAM_MB[.q4, default: Int.max] {
         let needed = info.minRAM_MB[.q4, default: 0]
         return ModelCompatibilityCheck(
@@ -197,74 +239,38 @@ public func checkModelCompatibility(
 
 // MARK: - Model Recommendation Engine
 
-/// Recommend best model based on device capabilities
-/// - Parameters:
-///   - category: Model category to filter (LLM or STT)
-///   - deviceProfile: Device profile with capabilities
-/// - Returns: ModelRecommendation or nil if no suitable model found
-public func recommendModel(
+/// Internal function to avoid name collision with SlyOS.recommendModel
+func SlyOS_recommendModel(
     category: ModelCategory = .llm,
     deviceProfile: DeviceProfile
 ) -> ModelRecommendation? {
     let memoryMB = deviceProfile.memoryMB
-
-    // Filter models by category
     let candidates = modelRegistry.filter { $0.value.category == category }
-
-    // Sort by model size descending - pick largest that fits
     let sorted = candidates.sorted { a, b in
         b.value.sizesMB[.q4, default: 0] > a.value.sizesMB[.q4, default: 0]
     }
 
     for (modelId, info) in sorted {
         let quant = selectQuantization(memoryMB: memoryMB, modelId: modelId)
-
         if memoryMB >= info.minRAM_MB[quant, default: Int.max] {
             let contextWindow = recommendContextWindow(memoryMB: memoryMB, quant: quant)
-            let reason = "Recommended for \(memoryMB)MB RAM at \(quant.rawValue.uppercased()) precision"
-
             return ModelRecommendation(
                 modelId: modelId,
                 quantizationLevel: quant,
                 contextWindow: contextWindow,
-                reason: reason
+                reason: "Recommended for \(memoryMB)MB RAM at \(quant.rawValue.uppercased()) precision"
             )
         }
     }
 
-    // Fallback to smallest model if nothing else fits
     if let smallest = sorted.last {
-        let contextWindow = recommendContextWindow(memoryMB: memoryMB, quant: .q4)
-        let reason = "Limited device memory - using smallest available model"
-
         return ModelRecommendation(
             modelId: smallest.key,
             quantizationLevel: .q4,
-            contextWindow: contextWindow,
-            reason: reason
+            contextWindow: recommendContextWindow(memoryMB: memoryMB, quant: .q4),
+            reason: "Limited device memory - using smallest available model"
         )
     }
 
     return nil
-}
-
-// MARK: - Available Models Listing
-
-/// Get all available models grouped by category
-/// - Returns: Dictionary mapping category names to lists of ModelInfo
-public func getAvailableModels() -> [String: [ModelInfo]] {
-    var grouped: [String: [ModelInfo]] = [
-        "llm": [],
-        "stt": []
-    ]
-
-    for (id, info) in modelRegistry {
-        let categoryKey = info.category.rawValue
-        if grouped[categoryKey] == nil {
-            grouped[categoryKey] = []
-        }
-        grouped[categoryKey]?.append(info)
-    }
-
-    return grouped
 }

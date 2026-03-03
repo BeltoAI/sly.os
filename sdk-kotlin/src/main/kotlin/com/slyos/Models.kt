@@ -138,7 +138,10 @@ data class DeviceProfile(
     val osVersion: Int? = null,
     val recommendedQuant: QuantizationLevel,
     val maxContextWindow: Int,
-    val hasGPU: Boolean = false
+    val hasGPU: Boolean = false,
+    // Enhanced device intelligence fields
+    val gpuRenderer: String? = null,
+    val gpuVramMB: Int? = null
 )
 
 // ─── Model Information ───────────────────────────────────────────────

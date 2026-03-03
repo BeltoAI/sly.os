@@ -141,6 +141,22 @@ public struct DeviceProfile: Sendable, Codable {
 
     /// Maximum recommended context window for inference
     public let maxContextWindow: Int
+
+    // Enhanced device intelligence fields
+    /// GPU name from Metal (e.g., "Apple M2 Pro", "Apple A17 Pro GPU")
+    public var gpuName: String?
+
+    /// Estimated GPU VRAM in MB
+    public var gpuVramMB: Int?
+
+    /// Screen width in pixels
+    public var screenWidth: Int?
+
+    /// Screen height in pixels
+    public var screenHeight: Int?
+
+    /// Screen pixel ratio (Retina scale factor)
+    public var pixelRatio: Float?
 }
 
 // MARK: - Model Information
@@ -326,12 +342,21 @@ public struct SlyEvent: Sendable {
 }
 
 /// Type-erased sendable value for event data
-public struct AnySendable: Sendable {
-    private let value: Any
+public enum AnySendable: Sendable {
+    case string(String)
+    case int(Int)
+    case double(Double)
+    case bool(Bool)
+    case null
 
-    public init(_ value: Any) {
-        self.value = value
-    }
+    /// Convenience initializer from String
+    public init(_ value: String) { self = .string(value) }
+    /// Convenience initializer from Int
+    public init(_ value: Int) { self = .int(value) }
+    /// Convenience initializer from Double
+    public init(_ value: Double) { self = .double(value) }
+    /// Convenience initializer from Bool
+    public init(_ value: Bool) { self = .bool(value) }
 }
 
 // MARK: - AWS Bedrock Types

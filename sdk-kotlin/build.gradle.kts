@@ -51,7 +51,10 @@ dependencies {
     implementation("com.squareup.okhttp3:logging-interceptor:4.11.0")
 
     // ONNX Runtime for Android (on-device inference)
-    implementation("ai.onnxruntime:onnxruntime-android:1.16.3")
+    implementation("ai.onnxruntime:onnxruntime-android:1.19.0")
+
+    // HuggingFace Tokenizers via DJL (Rust JNI backend for fast tokenization)
+    implementation("ai.djl.huggingface:tokenizers:0.29.0")
 
     // Android Framework
     implementation("androidx.appcompat:appcompat:1.6.1")
