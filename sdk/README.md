@@ -116,23 +116,87 @@ const response = await sdk.generate('quantum-1.7b',
 
 ---
 
-#### `chatCompletion(modelId, request)`
+#### `chatCompletion(options)`
 OpenAI-compatible chat completions.
+```javascript
+const response = await sdk.chatCompletion({
+  model: 'quantum-3b',
+  messages: [
+    { role: 'system', content: 'You are a helpful assistant.' },
+    { role: 'user', content: 'Explain quantum computing' }
+  ],
+  temperature: 0.7,
+  maxTokens: 512,
+  topP: 0.9,
+  frequencyPenalty: 0,
+  presencePenalty: 0
+});
+
+console.log(response.choices[0].message.content);
+```
+
+**Parameters:**
+- `model` (string): Model ID to use
+- `messages` (array): Conversation messages with role and content
+- `temperature` (0-2, optional): Creativity control (default: 0.7)
+- `maxTokens` (optional): Maximum response length
+- `topP` (0-1, optional): Nucleus sampling
+- `frequencyPenalty` (optional): Reduce repeated tokens
+- `presencePenalty` (optional): Encourage new topics
+
+**Returns:** `Promise<ChatCompletionResponse>`
 
 ---
 
 #### `transcribe(modelId, audio, options?)`
 Speech-to-text using voicecore models.
+```javascript
+const audioData = await fetch('audio.wav').then(r => r.arrayBuffer());
+
+const result = await sdk.transcribe('voicecore-base', audioData, {
+  language: 'en'
+});
+
+console.log(result.text); // Transcribed text
+```
+
+**Parameters:**
+- `modelId` (string): STT model (`voicecore-base` or `voicecore-small`)
+- `audio` (ArrayBuffer): Audio data
+- `options` (object, optional):
+  - `language` (string): Language code (default: 'en')
+
+**Returns:** `Promise<TranscriptionResult>`
 
 ---
 
 #### `recommendModel(category?)`
 Returns best model for the current device's hardware.
+```javascript
+const recommendation = sdk.recommendModel('llm');
+console.log(recommendation.modelId); // e.g., 'quantum-1.7b'
+```
 
 ---
 
 #### `searchModels(query, options?)`
 Search HuggingFace Hub for ONNX-compatible models.
+```javascript
+const results = await sdk.searchModels('code generation', {
+  limit: 10
+});
+
+results.forEach(model => {
+  console.log(model.name, model.downloads);
+});
+```
+
+**Parameters:**
+- `query` (string): Search keywords
+- `options` (object, optional):
+  - `limit` (number): Results to return (default: 5)
+
+**Returns:** `Promise<Array<ModelSearchResult>>`
 
 ---
 
@@ -347,26 +411,6 @@ const detailed = await sdk.generate('quantum-3b', 'Complex question?');
 - **License:** MIT
 - **Size:** 168 KB (unpacked)
 - **Dependencies:** axios, @huggingface/transformers
-
----
-
-## 🤝 Contributing
-```bash
-# Clone repo
-git clone https://github.com/BeltoAI/sly.os.git
-cd sly.os/sdk
-
-# Install dependencies
-npm install
-
-# Make changes to src/index.ts
-
-# Build
-npm run build
-
-# Test locally
-npm link
-```
 
 ---
 

@@ -1,19 +1,32 @@
-Copyright (c) 2026 Belto Inc. All Rights Reserved.
+Copyright (c) 2024-2026 Belto Inc. All Rights Reserved.
 
 PROPRIETARY SOFTWARE LICENSE
 
 This software and associated documentation files (the "Software") are the
-proprietary property of Belto Inc. No part of this Software may be copied,
-modified, merged, published, distributed, sublicensed, or sold without the
-prior written permission of Belto Inc.
+exclusive proprietary property of Belto Inc. The Software is protected by
+copyright laws and international treaty provisions.
 
-The Software is provided for evaluation and non-commercial use only.
-Commercial use, including but not limited to offering the Software as a
-hosted service, integrating it into commercial products, or deploying it
-in production environments for revenue-generating purposes, requires a
-separate commercial license agreement with Belto Inc.
+RESTRICTIONS
 
-For licensing inquiries, contact: support@belto.world
+You may NOT, without the prior written consent of Belto Inc:
+
+1. Copy, reproduce, or duplicate the Software or any portion thereof.
+2. Modify, adapt, translate, reverse engineer, decompile, disassemble, or
+   create derivative works based on the Software.
+3. Distribute, sublicense, lease, rent, loan, or otherwise transfer the
+   Software to any third party.
+4. Use the Software for any purpose, commercial or non-commercial, without
+   a valid license agreement with Belto Inc.
+5. Remove or alter any proprietary notices, labels, or marks on the Software.
+6. Use the Software to build a competing product or service.
+
+PERMITTED USE
+
+Use of the Software is permitted only under a valid subscription agreement
+with Belto Inc. Authorized users may integrate the SlyOS SDK into their
+applications solely as intended and documented under their active subscription.
+
+NO WARRANTY
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -21,3 +34,11 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
 BELTO INC. BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN
 AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+TERMINATION
+
+This license is effective until terminated. Belto Inc. may terminate this
+license at any time if you fail to comply with any term herein. Upon
+termination, you must destroy all copies of the Software in your possession.
+
+For licensing inquiries, contact: support@belto.world

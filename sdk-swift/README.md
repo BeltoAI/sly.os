@@ -112,6 +112,29 @@ print("Assistant: \(response.choices[0].message.content)")
 print("Tokens used: \(response.usage.totalTokens)")
 ```
 
+### Speech-to-Text Transcription
+
+```swift
+// Transcribe audio file to text using Whisper-based STT models
+let audioURL = Bundle.main.url(forResource: "recording", withExtension: "wav")!
+let audioData = try Data(contentsOf: audioURL)
+
+let transcriptionResult = try await sdk.transcribe(
+    "voicecore-base",
+    audio: audioData,
+    options: TranscriptionOptions(language: "en")
+)
+
+print("Transcribed text: \(transcriptionResult.text)")
+```
+
+**Parameters:**
+- `modelId` (String): STT model ID (`voicecore-base` or `voicecore-small`)
+- `audio` (Data): Audio file data in WAV or MP3 format
+- `options` (TranscriptionOptions, optional): Language and configuration
+
+**Returns:** `TranscriptionResult` with `text` (transcribed string) and `language` properties
+
 ### Text Generation with Options
 
 ```swift
@@ -200,6 +223,9 @@ func generate(_ modelId: String, prompt: String, options: GenerateOptions = .ini
 // OpenAI-compatible chat completion
 func chatCompletion(_ modelId: String, request: ChatCompletionRequest) async throws -> ChatCompletionResponse
 
+// Transcribe audio to text using Whisper STT models
+func transcribe(_ modelId: String, audio: Data, options: TranscriptionOptions = .init()) async throws -> TranscriptionResult
+
 // Get model recommendation
 func recommendModel(category: ModelCategory = .llm) -> ModelRecommendation?
 
@@ -264,7 +290,59 @@ enum ModelCategory: String {
     case llm
     case stt
 }
+
+struct TranscriptionOptions {
+    var language: String? = "en"
+}
+
+struct TranscriptionResult {
+    let text: String
+    let language: String
+}
 ```
+
+## GPU Acceleration (Metal Framework)
+
+The SDK automatically detects and leverages Apple's Metal framework for GPU-accelerated inference on compatible devices:
+
+```swift
+// GPU detection happens automatically during device profiling
+let profile = try await sdk.initialize()
+
+// Check if Metal GPU is available
+if profile.hasMetalGPU {
+    print("Metal GPU available - inference will be accelerated")
+} else {
+    print("GPU not available - using CPU inference")
+}
+```
+
+**Metal Framework Support:**
+- Automatically enabled on iOS 15+, macOS 12+
+- Detects A-series and M-series GPU capabilities
+- Selects optimal quantization for available VRAM
+- Fallback to CPU inference if Metal unavailable
+
+## Persistent Device ID (Keychain)
+
+The SDK stores a persistent device identifier in iOS Keychain for accurate device tracking across app reinstalls:
+
+```swift
+// Retrieve the persistent device ID
+let deviceId = try await sdk.getDeviceId()
+print("Device ID: \(deviceId)")
+
+// Device ID is automatically:
+// - Generated on first initialization
+// - Stored securely in Keychain
+// - Retrieved on subsequent initializations
+// - Used for device analytics and subscription tracking
+```
+
+**Keychain Details:**
+- Service: `com.slyos.sdk`
+- Account: `deviceId`
+- Accessibility: `.whenUnlockedThisDeviceOnly`
 
 ## Fallback Configuration
 
@@ -299,7 +377,89 @@ let config = SlyOSConfig(
 | voicecore-base | 512MB | 512MB | 1GB | 2GB |
 | voicecore-small | 1GB | 1GB | 2GB | 4GB |
 
+## Whisper Speech-to-Text Models
+
+The SDK includes built-in support for Whisper-based speech recognition models for on-device transcription:
+
+**Available STT Models:**
+- `voicecore-base`: Whisper Base (~40MB Q4) - Recommended for most use cases
+- `voicecore-small`: Whisper Small (~100MB Q4) - Higher accuracy, requires more memory
+
+**Supported Formats:**
+- WAV (PCM 16-bit, 16kHz recommended)
+- MP3
+- M4A
+
+**Example: Transcribe Microphone Audio**
+
+```swift
+import AVFoundation
+
+class AudioRecorder: NSObject, AVAudioRecorderDelegate {
+    var audioRecorder: AVAudioRecorder?
+
+    func recordAndTranscribe(sdk: SlyOS) async throws {
+        // Setup recording
+        let documentPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let audioURL = documentPath.appendingPathComponent("recording.wav")
+
+        let settings = [
+            AVFormatIDKey: Int(kAudioFormatLinearPCM),
+            AVSampleRateKey: 16000,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsNonInterleaved: false
+        ] as [String: Any]
+
+        audioRecorder = try AVAudioRecorder(url: audioURL, settings: settings)
+        audioRecorder?.record()
+
+        // ... user speaks ...
+
+        audioRecorder?.stop()
+
+        // Transcribe
+        let audioData = try Data(contentsOf: audioURL)
+        let result = try await sdk.transcribe("voicecore-base", audio: audioData)
+        print("Transcribed: \(result.text)")
+    }
+}
+```
+
 ## Thread Safety
+
+## Audio Processing
+
+The SDK includes an `AudioProcessor` utility for preprocessing audio before transcription:
+
+```swift
+import SlyOS
+
+// Initialize audio processor
+let audioProcessor = AudioProcessor()
+
+// Load and process audio
+let audioURL = Bundle.main.url(forResource: "recording", withExtension: "wav")!
+let audioData = try Data(contentsOf: audioURL)
+
+// Resample to 16kHz and normalize
+let processedAudio = try audioProcessor.process(
+    audioData,
+    targetSampleRate: 16000,
+    normalize: true
+)
+
+// Transcribe processed audio
+let result = try await sdk.transcribe("voicecore-base", audio: processedAudio)
+print(result.text)
+```
+
+**AudioProcessor Methods:**
+```swift
+func process(_ audioData: Data, targetSampleRate: Int = 16000, normalize: Bool = true) throws -> Data
+func detectSilence(_ audioData: Data, threshold: Float = 0.01) -> [ClosedRange<Int>]
+func trim(_ audioData: Data, removeLeadingTrail: Bool = true) throws -> Data
+```
 
 The SDK's main class `SlyOS` uses `@MainActor` to ensure thread safety:
 

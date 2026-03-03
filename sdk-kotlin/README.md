@@ -147,6 +147,39 @@ lifecycleScope.launch {
 }
 ```
 
+### 5. Speech-to-Text Transcription
+
+```kotlin
+import com.slyos.TranscriptionOptions
+
+lifecycleScope.launch {
+    try {
+        // Load audio file
+        val audioBytes = resources.openRawResource(R.raw.recording).use {
+            it.readBytes()
+        }
+
+        // Transcribe using Whisper-based STT model
+        val result = slyos.transcribe(
+            modelId = "voicecore-base",
+            audio = audioBytes,
+            options = TranscriptionOptions(language = "en")
+        )
+
+        println("Transcribed text: ${result.text}")
+    } catch (e: Exception) {
+        println("Transcription failed: ${e.message}")
+    }
+}
+```
+
+**Parameters:**
+- `modelId` (String): STT model ID (`voicecore-base` or `voicecore-small`)
+- `audio` (ByteArray): Audio file data (WAV, MP3, M4A)
+- `options` (TranscriptionOptions, optional): Language and transcription settings
+
+**Returns:** `TranscriptionResult` with `text` property containing transcribed string
+
 ## Available Models
 
 ### LLM Models (Text Generation)
@@ -208,6 +241,50 @@ models.forEach { (modelId, info) ->
 }
 ```
 
+## NNAPI GPU Acceleration
+
+The SDK automatically detects and uses Android NNAPI (Neural Networks API) for GPU-accelerated inference on compatible devices:
+
+```kotlin
+lifecycleScope.launch {
+    val profile = slyos.initialize()
+
+    if (profile.hasGPU) {
+        println("GPU acceleration available (NNAPI)")
+    } else {
+        println("GPU not available - using CPU")
+    }
+}
+```
+
+**NNAPI Support:**
+- Automatically enabled on Android 8.1+
+- Detects Adreno, Mali, PowerVR GPUs
+- ONNX Runtime handles GPU delegation
+- Fallback to CPU if NNAPI unavailable
+- Optimal quantization (Q4/Q8) selected based on available VRAM
+
+## Persistent Device ID (SharedPreferences)
+
+The SDK stores a persistent device identifier in Android SharedPreferences for accurate device tracking:
+
+```kotlin
+// Retrieve persistent device ID
+val deviceId = slyos.getDeviceId()
+println("Device ID: $deviceId")
+
+// Device ID is automatically:
+// - Generated on first initialization
+// - Stored in SharedPreferences (private app storage)
+// - Retrieved on subsequent initializations
+// - Used for analytics and subscription tracking
+```
+
+**SharedPreferences Details:**
+- Preference file: `com.slyos.sdk.prefs`
+- Key: `device_id`
+- Scope: Private to application
+
 ## Cloud Fallback Configuration
 
 Configure fallback to OpenAI or AWS Bedrock:
@@ -248,6 +325,80 @@ val config = SlyOSConfigWithFallback(
 
 The SDK automatically selects the optimal quantization based on available RAM.
 
+## Tokenizer Support (DJL)
+
+The SDK uses Deep Java Library (DJL) tokenizers for accurate token counting and text processing:
+
+```kotlin
+// Token counting (automatic behind-the-scenes)
+val maxContextTokens = sdk.getModelContextWindow()
+println("Max context: $maxContextTokens tokens")
+
+// The SDK automatically uses DJL tokenizers for:
+// - Token counting before inference
+// - Context window validation
+// - Batched request processing
+```
+
+DJL provides optimized implementations of:
+- Qwen tokenizer (for quantum-* models)
+- Whisper tokenizer (for voicecore-* models)
+- BPE tokenization with subword matching
+
+## Whisper Speech-to-Text Models
+
+The SDK includes built-in support for Whisper-based speech recognition for on-device transcription:
+
+**Available STT Models:**
+- `voicecore-base`: Whisper Base (~40MB Q4) - Recommended, good accuracy/speed tradeoff
+- `voicecore-small`: Whisper Small (~100MB Q4) - Higher accuracy, requires more memory
+
+**Supported Audio Formats:**
+- WAV (PCM 16-bit, 16kHz recommended)
+- MP3
+- M4A/AAC
+
+**Example: Record and Transcribe**
+
+```kotlin
+import android.media.MediaRecorder
+import java.io.File
+
+class AudioTranscriber(private val slyos: SlyOS, val context: Context) {
+    private var mediaRecorder: MediaRecorder? = null
+
+    fun recordAndTranscribe() {
+        lifecycleScope.launch {
+            val audioFile = File(context.cacheDir, "recording.wav")
+
+            // Setup recording
+            mediaRecorder = MediaRecorder().apply {
+                setAudioSource(MediaRecorder.AudioSource.MIC)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setOutputFile(audioFile.absolutePath)
+                prepare()
+                start()
+            }
+
+            // ... user speaks ...
+
+            mediaRecorder?.stop()
+            mediaRecorder?.release()
+
+            // Transcribe
+            try {
+                val audioBytes = audioFile.readBytes()
+                val result = slyos.transcribe("voicecore-base", audioBytes)
+                println("Transcribed: ${result.text}")
+            } catch (e: Exception) {
+                println("Transcription error: ${e.message}")
+            }
+        }
+    }
+}
+```
+
 ## Performance Optimization Tips
 
 1. **Use Q4 Quantization**: Best balance of size, speed, and quality for Android
@@ -256,6 +407,54 @@ The SDK automatically selects the optimal quantization based on available RAM.
 4. **Monitor Device Resources**: Use device profiling to make informed decisions
 5. **Enable Fallback**: Always configure a fallback provider for reliability
 6. **Use Coroutines**: Never block the main thread - always use `lifecycleScope.launch`
+
+## Audio Processing
+
+The SDK includes an `AudioProcessor` utility for preprocessing audio before transcription:
+
+```kotlin
+import com.slyos.AudioProcessor
+
+// Initialize audio processor
+val audioProcessor = AudioProcessor(context)
+
+lifecycleScope.launch {
+    try {
+        // Load audio file
+        val audioFile = File(context.cacheDir, "recording.wav")
+        val audioBytes = audioFile.readBytes()
+
+        // Process: resample to 16kHz and normalize
+        val processedAudio = audioProcessor.process(
+            audioBytes,
+            targetSampleRate = 16000,
+            normalize = true
+        )
+
+        // Transcribe
+        val result = slyos.transcribe("voicecore-base", processedAudio)
+        println("Transcribed: ${result.text}")
+    } catch (e: Exception) {
+        println("Processing error: ${e.message}")
+    }
+}
+```
+
+**AudioProcessor Methods:**
+```kotlin
+suspend fun process(
+    audioBytes: ByteArray,
+    targetSampleRate: Int = 16000,
+    normalize: Boolean = true
+): ByteArray
+
+fun detectSilence(
+    audioBytes: ByteArray,
+    threshold: Float = 0.01f
+): List<IntRange>
+
+suspend fun trim(audioBytes: ByteArray): ByteArray
+```
 
 ## Error Handling
 
@@ -338,6 +537,9 @@ Generates text using a loaded LLM model.
 
 #### `suspend fun chatCompletion(modelId: String, request: ChatCompletionRequest): ChatCompletionResponse`
 OpenAI-compatible chat completion endpoint.
+
+#### `suspend fun transcribe(modelId: String, audio: ByteArray, options: TranscriptionOptions): TranscriptionResult`
+Transcribes audio to text using Whisper-based STT models. Supports WAV, MP3, and M4A formats.
 
 #### `fun analyzeDevice(): DeviceProfile`
 Synchronous device capability analysis.

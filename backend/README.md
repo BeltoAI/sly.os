@@ -140,12 +140,6 @@ ADMIN_EMAILS=admin@example.com,admin2@example.com
 | POST | `/api/billing/create-checkout` | Yes | Create Stripe checkout session |
 | POST | `/api/billing/webhook` | No | Stripe webhook for subscription events |
 
-### Credits
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| GET | `/api/credits/balance` | Yes | Get subscription status |
-
 ### API Keys
 
 | Method | Endpoint | Auth | Description |
@@ -181,18 +175,17 @@ Tokens are obtained by:
 3. Using Google OAuth at `/api/auth/google`
 4. Using SDK authentication at `/api/auth/sdk` with API key
 
-## Billing Status Check
+## Subscription & Device-Based Billing
 
-Several endpoints check billing status (via `checkBillingStatus` middleware):
+SlyOS uses a device-based subscription model. All endpoints that require active subscriptions check billing status via the `checkBillingStatus` middleware:
 - `/api/devices/register`
 - `/api/devices`
 - `/api/models`
 - `/api/analytics/overview`
 - `/api/telemetry`
 - `/api/rag/knowledge-bases` (all endpoints)
-- `/api/credits/balance`
 
-These endpoints return a 402 (Payment Required) status if the organization is not in good standing.
+These endpoints return a 402 (Payment Required) status if the organization subscription is inactive or expired. Billing is based on the number of active registered devices per month at the subscription tier level.
 
 ## Database Schema
 

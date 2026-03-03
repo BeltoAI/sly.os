@@ -192,21 +192,9 @@ SlyOS includes a management dashboard at [dashboard-khaki-iota-54.vercel.app](ht
 
 See the [full API documentation](https://docs.slyos.world/api) for complete method signatures and options.
 
-## Contributing
+## Proprietary Software
 
-We welcome contributions! Please follow these guidelines:
-
-1. **Fork** the repository
-2. **Create a feature branch** (`git checkout -b feature/amazing-feature`)
-3. **Commit your changes** (`git commit -m 'Add amazing feature'`)
-4. **Push to your branch** (`git push origin feature/amazing-feature`)
-5. **Open a Pull Request** with a clear description
-
-Please ensure:
-- Code follows the existing style
-- Changes are well-tested
-- Commit messages are clear and descriptive
-- No internal URLs, credentials, or secrets are included
+SlyOS is proprietary software. Unauthorized copying, modification, or distribution of this code is prohibited.
 
 ## License
 
