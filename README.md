@@ -1,12 +1,12 @@
 # SlyOS
 
 [![npm version](https://img.shields.io/npm/v/@emilshirokikh/slyos-sdk?style=flat-square)](https://www.npmjs.com/package/@emilshirokikh/slyos-sdk)
-[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+[![License](https://img.shields.io/badge/license-Proprietary-red?style=flat-square)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0%2B-blue?style=flat-square)](https://www.typescriptlang.org/)
 
 **On-Device AI Infrastructure for the Edge**
 
-SlyOS is an open-source SDK that brings AI inference to your users' devices—phones, laptops, and IoT hardware—without cloud dependency. Run models locally for faster responses, better privacy, and dramatically lower costs.
+SlyOS is a proprietary SDK that brings AI inference to your users' devices—phones, laptops, and IoT hardware—without cloud dependency. Run models locally for faster responses, better privacy, and dramatically lower costs.
 
 ## What is SlyOS?
 
@@ -198,7 +198,7 @@ SlyOS is proprietary software. Unauthorized copying, modification, or distributi
 
 ## License
 
-MIT License — See [LICENSE](LICENSE) for details
+Proprietary — See [LICENSE](LICENSE) for details
 
 ## Acknowledgments
 

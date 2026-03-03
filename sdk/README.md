@@ -408,7 +408,7 @@ const detailed = await sdk.generate('quantum-3b', 'Complex question?');
 
 - **Package:** `@emilshirokikh/slyos-sdk`
 - **Version:** 1.4.0
-- **License:** MIT
+- **License:** Proprietary
 - **Size:** 168 KB (unpacked)
 - **Dependencies:** axios, @huggingface/transformers
 
@@ -416,7 +416,7 @@ const detailed = await sdk.generate('quantum-3b', 'Complex question?');
 
 ## 📄 License
 
-MIT - See LICENSE file
+Proprietary — See LICENSE file for details
 
 ---
 

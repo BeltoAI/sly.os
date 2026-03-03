@@ -46,4 +46,4 @@ npm run start
 
 ## License
 
-MIT
+Proprietary — See LICENSE file for details

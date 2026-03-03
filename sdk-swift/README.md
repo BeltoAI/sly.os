@@ -505,7 +505,7 @@ do {
 
 ## License
 
-MIT License - See LICENSE file for details
+Proprietary — See LICENSE file for details
 
 ## Support
 

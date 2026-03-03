@@ -233,4 +233,4 @@ The API does not currently implement rate limiting but may be added in productio
 
 ## License
 
-MIT
+Proprietary — See LICENSE file for details
