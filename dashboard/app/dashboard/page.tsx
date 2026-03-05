@@ -31,16 +31,6 @@ export default function DashboardPage() {
     if (u) try { setUser(JSON.parse(u)); } catch {}
   }, []);
 
-  if (!analytics) return (
-    <div className="flex items-center justify-center py-32">
-      <div className="w-5 h-5 border-2 border-[#FF4D00] border-t-transparent rounded-full animate-spin" />
-    </div>
-  );
-
-  const activeDevices = devices.filter(d => d.status === 'active').length;
-  const firstName = user.name ? user.name.split(' ')[0] : 'there';
-  const hasDeployments = selectedModels.length > 0;
-
   // Transform recentActivity (hourly event counts) into chart data
   const activityData = useMemo(() => {
     if (!analytics?.recentActivity?.length) return [];
@@ -62,6 +52,16 @@ export default function DashboardPage() {
         devices: parseInt(m.count) || 0,
       }));
   }, [analytics]);
+
+  if (!analytics) return (
+    <div className="flex items-center justify-center py-32">
+      <div className="w-5 h-5 border-2 border-[#FF4D00] border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+
+  const activeDevices = devices.filter(d => d.status === 'active').length;
+  const firstName = user.name ? user.name.split(' ')[0] : 'there';
+  const hasDeployments = selectedModels.length > 0;
 
   return (
     <div className="animate-fade-in">
