@@ -1,10 +1,11 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { getAnalytics, getDevices, getModels, getBillingStatus } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
-import { Smartphone, Zap, Brain, ArrowRight, Activity, Plus, Award } from 'lucide-react';
+import { Smartphone, Zap, Brain, ArrowRight, Activity, Plus, Award, TrendingUp, BarChart3 } from 'lucide-react';
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -39,6 +40,28 @@ export default function DashboardPage() {
   const activeDevices = devices.filter(d => d.status === 'active').length;
   const firstName = user.name ? user.name.split(' ')[0] : 'there';
   const hasDeployments = selectedModels.length > 0;
+
+  // Transform recentActivity (hourly event counts) into chart data
+  const activityData = useMemo(() => {
+    if (!analytics?.recentActivity?.length) return [];
+    return analytics.recentActivity
+      .map((a: any) => ({
+        time: new Date(a.hour).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        events: parseInt(a.events) || 0,
+      }))
+      .reverse();
+  }, [analytics]);
+
+  // Transform modelDistribution into chart data
+  const modelData = useMemo(() => {
+    if (!analytics?.modelDistribution?.length) return [];
+    return analytics.modelDistribution
+      .filter((m: any) => parseInt(m.count) > 0)
+      .map((m: any) => ({
+        name: m.name?.replace('quantum-', 'Q-')?.replace('voicecore-', 'VC-') || 'Unknown',
+        devices: parseInt(m.count) || 0,
+      }));
+  }, [analytics]);
 
   return (
     <div className="animate-fade-in">
@@ -97,6 +120,80 @@ export default function DashboardPage() {
           <div className="text-2xl font-bold text-[#EDEDED]">${analytics?.costSavings?.estimatedCostSaved?.toFixed(2) || '0.00'}</div>
           <p className="text-xs text-[#555555] mt-1">vs cloud API</p>
         </div>
+      </div>
+
+      {/* CHARTS ROW */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        {/* 24h Inference Activity */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <TrendingUp className="w-4 h-4 text-[#FF4D00]" />
+              Inference Activity
+              <span className="ml-auto text-[10px] font-mono text-[#555555] font-normal">Last 24h</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {activityData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={180}>
+                <AreaChart data={activityData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="inferenceGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#FF4D00" stopOpacity={0.3} />
+                      <stop offset="100%" stopColor="#FF4D00" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                  <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#555555' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 10, fill: '#555555' }} axisLine={false} tickLine={false} allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{ background: '#0A0A0A', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', fontSize: '12px' }}
+                    labelStyle={{ color: '#888888', fontSize: '10px' }}
+                    itemStyle={{ color: '#FF4D00' }}
+                  />
+                  <Area type="monotone" dataKey="events" stroke="#FF4D00" strokeWidth={2} fill="url(#inferenceGradient)" name="Inferences" />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-[180px] text-xs text-[#555555]">
+                No activity in the last 24 hours
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Model Distribution */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <BarChart3 className="w-4 h-4 text-[#FF4D00]" />
+              Model Usage
+              <span className="ml-auto text-[10px] font-mono text-[#555555] font-normal">By devices</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {modelData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={modelData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }} barSize={32}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#555555' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 10, fill: '#555555' }} axisLine={false} tickLine={false} allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{ background: '#0A0A0A', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', fontSize: '12px' }}
+                    labelStyle={{ color: '#888888', fontSize: '10px' }}
+                    itemStyle={{ color: '#FF4D00' }}
+                    cursor={{ fill: 'rgba(255,77,0,0.05)' }}
+                  />
+                  <Bar dataKey="devices" fill="#FF4D00" radius={[4, 4, 0, 0]} name="Devices" />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-[180px] text-xs text-[#555555]">
+                No model usage data yet
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* ONBOARDING BANNER */}
