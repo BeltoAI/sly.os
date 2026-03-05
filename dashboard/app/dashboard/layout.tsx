@@ -13,6 +13,7 @@ const navItems = [
   { href: '/dashboard/deploy', label: 'Deploy', icon: Rocket },
   { href: '/dashboard/knowledge-base', label: 'Knowledge Base', icon: Database },
   { href: '/dashboard/devices', label: 'Devices', icon: Smartphone },
+  { href: '/dashboard/documentation', label: 'Documentation', icon: BookOpen },
   { href: '/dashboard/ideas', label: 'Ideas', icon: Lightbulb },
   { href: '/dashboard/settings', label: 'Settings', icon: Settings },
 ];
