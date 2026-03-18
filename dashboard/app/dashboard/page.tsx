@@ -267,15 +267,15 @@ export default function DashboardPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {analytics.recentActivity && analytics.recentActivity.length > 0 ? (
+          {analytics.recentEvents && analytics.recentEvents.length > 0 ? (
             <div className="space-y-3">
-              {analytics.recentActivity.slice(0, 5).map((activity: any, idx: number) => (
+              {analytics.recentEvents.slice(0, 5).map((event: any, idx: number) => (
                 <div key={idx} className="flex items-start gap-4 p-3 rounded-lg border border-[rgba(255,255,255,0.04)]">
-                  <div className="w-2 h-2 rounded-full bg-[#FF4D00] mt-2 flex-shrink-0" />
+                  <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${event.type === 'inference' ? 'bg-[#22c55e]' : 'bg-[#FF4D00]'}`} />
                   <div className="flex-1">
-                    <p className="text-sm text-[#EDEDED]">{activity.description || activity.type}</p>
+                    <p className="text-sm text-[#EDEDED]">{event.description}</p>
                     <p className="text-xs text-[#555555] mt-1">
-                      {new Date(activity.timestamp).toLocaleDateString()} at {new Date(activity.timestamp).toLocaleTimeString()}
+                      {new Date(event.timestamp).toLocaleDateString()} at {new Date(event.timestamp).toLocaleTimeString()}
                     </p>
                   </div>
                 </div>

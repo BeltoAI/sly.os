@@ -1582,12 +1582,44 @@ app.get('/api/analytics/overview', authenticate, async (req, res) => {
       WHERE organization_id = $1 AND event_type = 'inference' AND success = true
     `, [req.user.org_id]).catch(() => ({ rows: [{ total_inferences: 0, total_tokens: 0 }] }));
 
-    const modelDist = await db.query(`SELECT m.name, COUNT(dm.device_id) as count FROM models m LEFT JOIN device_models dm ON m.id = dm.model_id LEFT JOIN devices d ON dm.device_id = d.id WHERE d.organization_id = $1 GROUP BY m.id`, [req.user.org_id]);
-    const activity = await db.query(`SELECT DATE_TRUNC('hour', timestamp) as hour, COUNT(*) as events FROM telemetry_events WHERE organization_id = $1 AND timestamp > NOW() - INTERVAL '24 hours' GROUP BY hour ORDER BY hour DESC`, [req.user.org_id]);
+    // Model usage: count devices per model, fall back to counting from telemetry if device_models is empty
+    let modelDist = await db.query(`SELECT m.name, COUNT(DISTINCT dm.device_id) as count FROM models m LEFT JOIN device_models dm ON m.id = dm.model_id LEFT JOIN devices d ON dm.device_id = d.id AND d.organization_id = $1 WHERE dm.device_id IS NOT NULL GROUP BY m.id, m.name`, [req.user.org_id]);
+    if (modelDist.rows.length === 0) {
+      modelDist = await db.query(`SELECT m.name, COUNT(DISTINCT te.device_id) as count FROM telemetry_events te JOIN models m ON te.model_id = m.id WHERE te.organization_id = $1 AND te.event_type = 'inference' AND te.success = true GROUP BY m.id, m.name`, [req.user.org_id]);
+    }
+
+    // Hourly chart data for inference activity graph
+    const activityChart = await db.query(`SELECT DATE_TRUNC('hour', timestamp) as hour, COUNT(*) as events FROM telemetry_events WHERE organization_id = $1 AND timestamp > NOW() - INTERVAL '24 hours' GROUP BY hour ORDER BY hour DESC`, [req.user.org_id]);
+
+    // Recent individual events for the activity feed
+    const recentEvents = await db.query(`
+      SELECT te.event_type, te.latency_ms, te.tokens_generated, te.success, te.timestamp,
+             m.name as model_name, d.device_id as device_name
+      FROM telemetry_events te
+      LEFT JOIN models m ON te.model_id = m.id
+      LEFT JOIN devices d ON te.device_id = d.id
+      WHERE te.organization_id = $1
+      ORDER BY te.timestamp DESC LIMIT 10
+    `, [req.user.org_id]);
+
+    const recentActivityList = recentEvents.rows.map(e => ({
+      type: e.event_type,
+      description: e.event_type === 'inference'
+        ? `${e.success ? 'Inference' : 'Failed inference'} on ${e.model_name || 'unknown model'} — ${e.tokens_generated || 0} tokens in ${e.latency_ms || 0}ms`
+        : `${e.event_type} event`,
+      timestamp: e.timestamp,
+      model: e.model_name,
+      device: e.device_name,
+    }));
 
     const totalTokensAllTime = parseInt(allTime.rows[0]?.total_tokens) || 0;
-    // Cloud API cost comparison: ~$0.01 per 1K tokens (conservative GPT-4 estimate)
-    const estimatedSaved = (totalTokensAllTime / 1000) * 0.01;
+    const totalInferencesAllTime = parseInt(allTime.rows[0]?.total_inferences) || 0;
+    // Cloud API cost: ~$0.03 per 1K input tokens + $0.06 per 1K output tokens (GPT-4o avg)
+    // Conservative: $0.03 per 1K tokens blended
+    const estimatedSaved = (totalTokensAllTime / 1000) * 0.03;
+    // Minimum: at least $0.002 per inference if tokens aren't tracked
+    const minSaved = totalInferencesAllTime * 0.002;
+    const finalSaved = Math.max(estimatedSaved, minSaved);
 
     res.json({
       devices: devices.rows[0],
@@ -1596,12 +1628,13 @@ app.get('/api/analytics/overview', authenticate, async (req, res) => {
         total_tokens_generated: parseInt(todayData.total_tokens_generated) || 0,
       },
       allTime: {
-        total_inferences: parseInt(allTime.rows[0]?.total_inferences) || 0,
+        total_inferences: totalInferencesAllTime,
         total_tokens: totalTokensAllTime,
       },
       modelDistribution: modelDist.rows,
-      recentActivity: activity.rows,
-      costSavings: { tokensGenerated: totalTokensAllTime, estimatedCostSaved: parseFloat(estimatedSaved.toFixed(4)) }
+      recentActivity: activityChart.rows,
+      recentEvents: recentActivityList,
+      costSavings: { tokensGenerated: totalTokensAllTime, estimatedCostSaved: parseFloat(finalSaved.toFixed(4)) }
     });
   } catch (err) {
     console.error(err);
@@ -1635,6 +1668,15 @@ app.post('/api/telemetry', authenticate, async (req, res) => {
           total_inferences = analytics_daily.total_inferences + 1,
           total_tokens_generated = analytics_daily.total_tokens_generated + $2
       `, [req.user.org_id, tokens_generated || 0]).catch(() => {});
+
+      // Track which models are running on which devices
+      if (modelUUID && deviceUUID) {
+        await db.query(`
+          INSERT INTO device_models (device_id, model_id)
+          VALUES ($1, $2)
+          ON CONFLICT (device_id, model_id) DO NOTHING
+        `, [deviceUUID, modelUUID]).catch(() => {});
+      }
     }
 
     res.json({ success: true });
