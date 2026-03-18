@@ -60,7 +60,7 @@ export default function DeployPage() {
   // ============= CODE SNIPPETS =============
 
   // Terminal
-  const oneLiner = `curl -sL https://raw.githubusercontent.com/BeltoAI/sly.os/main/sdk/create-chatbot.sh | bash -s -- --api-key ${apiKey} --model ${modelId}${kbId ? ` --kb-id ${kbId}` : ''}`;
+  const oneLiner = `curl -sL https://raw.githubusercontent.com/BeltoAI/sly.os/master/sdk/create-chatbot.sh | bash -s -- --api-key ${apiKey} --model ${modelId}${kbId ? ` --kb-id ${kbId}` : ''}`;
 
   // Widget
   const widgetCode = `<!-- SlyOS AI Widget -->
