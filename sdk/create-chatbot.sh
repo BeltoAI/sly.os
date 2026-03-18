@@ -329,22 +329,25 @@ async function sendMessage(userMessage) {
         const goodChunks = chunks.filter(c => (c.similarity_score || 0) > 0.3);
 
         if (goodChunks.length > 0) {
-          // Adapt context size to model's context window
+          // Keep context SHORT — small models need room to generate
           const ctxWindow = sdk.getModelContextWindow?.() || 2048;
-          const maxContextChars = Math.max(500, (ctxWindow - 200) * 3);
-          const maxGenTokens = Math.min(200, Math.floor(ctxWindow / 4));
+          // Reserve at least 40% of context window for generation
+          const maxContextChars = ctxWindow <= 2048 ? 800 : ctxWindow <= 4096 ? 1500 : 3000;
+          const maxGenTokens = ctxWindow <= 2048 ? 150 : Math.min(300, Math.floor(ctxWindow / 4));
 
           // Clean and truncate context — strip weird chars, fit model window
           let context = goodChunks.map(c => c.content).join('\n')
             .replace(/[^\x20-\x7E\n]/g, ' ')  // Strip non-ASCII/control chars
             .replace(/\s{3,}/g, ' ')            // Collapse excessive whitespace
+            .replace(/<[^>]+>/g, ' ')           // Strip any leftover HTML tags
+            .replace(/https?:\/\/\S+/g, '')     // Strip URLs to save tokens
             .trim();
           if (context.length > maxContextChars) context = context.substring(0, maxContextChars);
 
-          // Simple context-then-QA format — this works best with small models
-          const prompt = `${context}\n\nQuestion: ${userMessage}\nAnswer:`;
+          // Instruction-style prompt that small models understand
+          const prompt = `Use the following information to answer the question.\n\nInfo: ${context}\n\nQuestion: ${userMessage}\nAnswer:`;
           const response = await sdk.generate(config.model, prompt, {
-            temperature: 0.5,
+            temperature: 0.6,
             maxTokens: maxGenTokens
           });
           assistantMessage = (typeof response === 'string' ? response : response?.text || response?.content || '') || '';

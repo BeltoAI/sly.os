@@ -1594,8 +1594,8 @@ class SlyOS {
         .sort((a, b) => b.similarityScore - a.similarityScore)
         .slice(0, options.topK || 5);
 
-      // Step 5: Build context with size limits
-      const maxContextChars = (contextWindow - 200) * 3; // Rough token-to-char ratio, reserving 200 tokens
+      // Step 5: Build context with size limits — keep context SHORT so model has room to generate
+      const maxContextChars = contextWindow <= 2048 ? 800 : contextWindow <= 4096 ? 1500 : 3000;
       let contextLength = 0;
       const contextParts: string[] = [];
 
@@ -1610,12 +1610,13 @@ class SlyOS {
       }
 
       const context = contextParts.join('\n\n---\n\n');
-      const prompt = `You are a helpful assistant. Answer based ONLY on the following context:\n\n${context}\n\nQuestion: ${options.query}\n\nAnswer:`;
+      const prompt = `Use the following information to answer the question.\n\nInfo: ${context}\n\nQuestion: ${options.query}\nAnswer:`;
 
       // Step 6: Generate locally
+      const maxGen = contextWindow <= 2048 ? 150 : Math.min(300, Math.floor(contextWindow / 4));
       const response = await this.generate(options.modelId, prompt, {
-        temperature: options.temperature,
-        maxTokens: options.maxTokens,
+        temperature: options.temperature || 0.6,
+        maxTokens: options.maxTokens || maxGen,
       });
 
       return {
@@ -1675,9 +1676,9 @@ class SlyOS {
         .sort((a, b) => b.similarityScore - a.similarityScore)
         .slice(0, options.topK || 5);
 
-      // Build context with size limits
+      // Build context with size limits — keep context SHORT so model has room to generate
       const contextWindow = this.modelContextWindow || 2048;
-      const maxContextChars = (contextWindow - 200) * 3; // Rough token-to-char ratio, reserving 200 tokens
+      const maxContextChars = contextWindow <= 2048 ? 800 : contextWindow <= 4096 ? 1500 : 3000;
       let contextLength = 0;
       const contextParts: string[] = [];
 
@@ -1685,19 +1686,20 @@ class SlyOS {
         const part = `[Source: ${c.document_name}]\n${c.content}`;
         if (contextLength + part.length <= maxContextChars) {
           contextParts.push(part);
-          contextLength += part.length + 10; // Account for separator
+          contextLength += part.length + 10;
         } else {
           break;
         }
       }
 
       const context = contextParts.join('\n\n---\n\n');
-      const prompt = `You are a helpful assistant. Answer based ONLY on the following context:\n\n${context}\n\nQuestion: ${options.query}\n\nAnswer:`;
+      const prompt = `Use the following information to answer the question.\n\nInfo: ${context}\n\nQuestion: ${options.query}\nAnswer:`;
 
       // Generate locally
+      const maxGen = contextWindow <= 2048 ? 150 : Math.min(300, Math.floor(contextWindow / 4));
       const response = await this.generate(options.modelId, prompt, {
-        temperature: options.temperature,
-        maxTokens: options.maxTokens,
+        temperature: options.temperature || 0.6,
+        maxTokens: options.maxTokens || maxGen,
       });
 
       return {
