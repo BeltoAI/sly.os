@@ -400,6 +400,19 @@ db.query(`
   console.log('✅ Ideas indexes created');
 }).catch((err) => { console.log('Ideas indexes note:', err.message); });
 
+// Ensure device_models join table exists
+db.query(`
+  CREATE TABLE IF NOT EXISTS device_models (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    model_id UUID NOT NULL REFERENCES models(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(device_id, model_id)
+  )
+`).then(() => {
+  console.log('✅ Device models table initialized');
+}).catch((err) => { console.log('Device models table note:', err.message); });
+
 // CORS - production-ready
 const allowedOrigins = process.env.CORS_ORIGIN ?
   process.env.CORS_ORIGIN.split(',') :
