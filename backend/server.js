@@ -1596,9 +1596,10 @@ app.get('/api/analytics/overview', authenticate, async (req, res) => {
     `, [req.user.org_id]).catch(() => ({ rows: [{ total_inferences: 0, total_tokens: 0 }] }));
 
     // Model usage: count devices per model, fall back to counting from telemetry if device_models is empty
-    let modelDist = await db.query(`SELECT m.name, COUNT(DISTINCT dm.device_id) as count FROM models m LEFT JOIN device_models dm ON m.id = dm.model_id LEFT JOIN devices d ON dm.device_id = d.id AND d.organization_id = $1 WHERE dm.device_id IS NOT NULL GROUP BY m.id, m.name`, [req.user.org_id]);
+    // Filter out disabled sub-1B models (quantum-135m, quantum-360m, voicecore-tiny)
+    let modelDist = await db.query(`SELECT m.name, COUNT(DISTINCT dm.device_id) as count FROM models m LEFT JOIN device_models dm ON m.id = dm.model_id LEFT JOIN devices d ON dm.device_id = d.id AND d.organization_id = $1 WHERE dm.device_id IS NOT NULL AND m.enabled != false GROUP BY m.id, m.name`, [req.user.org_id]);
     if (modelDist.rows.length === 0) {
-      modelDist = await db.query(`SELECT m.name, COUNT(DISTINCT te.device_id) as count FROM telemetry_events te JOIN models m ON te.model_id = m.id WHERE te.organization_id = $1 AND te.event_type = 'inference' AND te.success = true GROUP BY m.id, m.name`, [req.user.org_id]);
+      modelDist = await db.query(`SELECT m.name, COUNT(DISTINCT te.device_id) as count FROM telemetry_events te JOIN models m ON te.model_id = m.id WHERE te.organization_id = $1 AND te.event_type = 'inference' AND te.success = true AND m.enabled != false GROUP BY m.id, m.name`, [req.user.org_id]);
     }
 
     // Hourly chart data for inference activity graph

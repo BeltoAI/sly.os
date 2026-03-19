@@ -174,6 +174,8 @@ interface RAGOptions {
   modelId: string;
   temperature?: number;
   maxTokens?: number;
+  // NEW: streaming callback
+  onToken?: (token: string, partial: string) => void;
 }
 
 interface RAGChunk {
@@ -192,6 +194,25 @@ interface RAGResponse {
   context: string;
   latencyMs: number;
   tierUsed: 1 | 2 | 3;
+  // NEW: detailed timing metrics
+  timing: {
+    retrievalMs: number;      // Time spent retrieving/embedding chunks
+    contextBuildMs: number;   // Time spent building context
+    firstTokenMs: number;     // Time to first token (from generation start)
+    generationMs: number;     // Total generation time
+    totalMs: number;          // End-to-end latency
+    tokensGenerated: number;  // Number of tokens in response
+    tokensPerSecond: number;  // Generation throughput
+  };
+  // NEW: dynamic config used
+  config: {
+    maxContextChars: number;
+    maxGenTokens: number;
+    chunkSize: number;
+    topK: number;
+    contextWindowUsed: number;
+    deviceTier: 'low' | 'mid' | 'high';
+  };
 }
 
 interface OfflineIndex {
@@ -1145,6 +1166,68 @@ class SlyOS {
     }
   }
 
+  /**
+   * Stream text generation token-by-token.
+   * Calls onToken callback for each generated token.
+   */
+  async generateStream(
+    modelId: string,
+    prompt: string,
+    options: GenerateOptions & { onToken?: (token: string, partial: string) => void } = {}
+  ): Promise<{ text: string; firstTokenMs: number; totalMs: number; tokensGenerated: number }> {
+    if (!this.models.has(modelId)) {
+      await this.loadModel(modelId);
+    }
+    const loaded = this.models.get(modelId);
+    if (!loaded) throw new Error(`Model "${modelId}" not loaded`);
+    const { pipe, info, contextWindow } = loaded;
+    if (info.category !== 'llm') throw new Error(`Not an LLM`);
+
+    const maxTokens = Math.min(options.maxTokens || 100, contextWindow || 2048);
+    const startTime = Date.now();
+    let firstTokenTime = 0;
+    let accumulated = '';
+
+    this.emitProgress('generating', 0, `Streaming (max ${maxTokens} tokens)...`);
+
+    try {
+      const result = await pipe(prompt, {
+        max_new_tokens: maxTokens,
+        temperature: options.temperature || 0.7,
+        top_p: options.topP || 0.9,
+        do_sample: true,
+        // Transformers.js streamer callback
+        callback_function: (output: any) => {
+          if (!firstTokenTime) firstTokenTime = Date.now() - startTime;
+          if (output && output.length > 0) {
+            // output is token IDs, we need to decode
+            // The callback in transformers.js v3 gives decoded text tokens
+            const tokenText = typeof output === 'string' ? output : '';
+            if (tokenText) {
+              accumulated += tokenText;
+              options.onToken?.(tokenText, accumulated);
+              this.emitEvent('token', { token: tokenText, partial: accumulated });
+            }
+          }
+        }
+      });
+
+      const rawOutput = result[0].generated_text;
+      const response = rawOutput.startsWith(prompt) ? rawOutput.slice(prompt.length).trim() : rawOutput.trim();
+
+      if (!firstTokenTime) firstTokenTime = Date.now() - startTime;
+      const totalMs = Date.now() - startTime;
+      const tokensGenerated = response.split(/\s+/).length;
+
+      this.emitProgress('ready', 100, `Streamed ${tokensGenerated} tokens in ${(totalMs/1000).toFixed(1)}s`);
+
+      return { text: response, firstTokenMs: firstTokenTime, totalMs, tokensGenerated };
+    } catch (error: any) {
+      this.emitProgress('error', 0, `Stream failed: ${error.message}`);
+      throw error;
+    }
+  }
+
   // ── Inference: Transcribe ───────────────────────────────────────
 
   async transcribe(modelId: string, audioInput: any, options: TranscribeOptions = {}): Promise<string> {
@@ -1496,6 +1579,54 @@ class SlyOS {
   private offlineIndexes: Map<string, OfflineIndex> = new Map();
 
   /**
+   * Compute dynamic RAG parameters based on device profile and model.
+   */
+  private computeRAGConfig(modelId: string): {
+    maxContextChars: number;
+    maxGenTokens: number;
+    chunkSize: number;
+    topK: number;
+    contextWindow: number;
+    deviceTier: 'low' | 'mid' | 'high';
+  } {
+    const contextWindow = this.modelContextWindow || 2048;
+    const memoryMB = this.deviceProfile?.memoryMB || 4096;
+    const cpuCores = this.deviceProfile?.cpuCores || 4;
+    const hasGPU = !!(this.deviceProfile?.gpuRenderer || this.deviceProfile?.webgpuAvailable);
+
+    // Determine device tier
+    let deviceTier: 'low' | 'mid' | 'high' = 'low';
+    if (memoryMB >= 8192 && cpuCores >= 8) deviceTier = 'high';
+    else if (memoryMB >= 4096 && cpuCores >= 4) deviceTier = 'mid';
+
+    // Context chars: scale with context window AND device capability
+    let maxContextChars: number;
+    if (contextWindow <= 2048) {
+      maxContextChars = deviceTier === 'high' ? 600 : deviceTier === 'mid' ? 400 : 300;
+    } else if (contextWindow <= 4096) {
+      maxContextChars = deviceTier === 'high' ? 1500 : deviceTier === 'mid' ? 1000 : 600;
+    } else {
+      maxContextChars = deviceTier === 'high' ? 3000 : deviceTier === 'mid' ? 2000 : 1000;
+    }
+
+    // Gen tokens: scale with device tier
+    let maxGenTokens: number;
+    if (contextWindow <= 2048) {
+      maxGenTokens = deviceTier === 'high' ? 200 : deviceTier === 'mid' ? 150 : 100;
+    } else {
+      maxGenTokens = deviceTier === 'high' ? 400 : deviceTier === 'mid' ? 300 : 150;
+    }
+
+    // Chunk size: larger chunks for bigger context windows
+    const chunkSize = contextWindow <= 2048 ? 256 : contextWindow <= 4096 ? 512 : 1024;
+
+    // TopK: more chunks for powerful devices
+    const topK = deviceTier === 'high' ? 5 : deviceTier === 'mid' ? 3 : 1;
+
+    return { maxContextChars, maxGenTokens, chunkSize, topK, contextWindow, deviceTier };
+  }
+
+  /**
    * Tier 2: Cloud-indexed RAG with local inference.
    * Retrieves relevant chunks from server, generates response locally.
    */
@@ -1505,36 +1636,61 @@ class SlyOS {
     try {
       if (!this.token) throw new Error('Not authenticated. Call init() first.');
 
+      const ragConfig = this.computeRAGConfig(options.modelId);
+
       // Step 1: Retrieve relevant chunks from backend
+      const retrievalStart = Date.now();
       const searchResponse = await axios.post(
         `${this.apiUrl}/api/rag/knowledge-bases/${options.knowledgeBaseId}/query`,
         {
           query: options.query,
-          top_k: options.topK || 5,
+          top_k: options.topK || ragConfig.topK,
           model_id: options.modelId
         },
         { headers: { Authorization: `Bearer ${this.token}` } }
       );
+      const retrievalMs = Date.now() - retrievalStart;
 
       let { retrieved_chunks, prompt_template, context } = searchResponse.data;
 
-      // Apply context window limits
-      const contextWindow = this.modelContextWindow || 2048;
-      const maxContextChars = (contextWindow - 200) * 3; // Rough token-to-char ratio, reserving 200 tokens
-
-      if (context && context.length > maxContextChars) {
-        context = context.substring(0, maxContextChars) + '...';
+      // Step 2: Build context with dynamic limits
+      const contextBuildStart = Date.now();
+      if (context && context.length > ragConfig.maxContextChars) {
+        context = context.substring(0, ragConfig.maxContextChars);
       }
+      // If no prompt_template from server, build minimal one
+      if (!prompt_template) {
+        prompt_template = `${context}\n\nQ: ${options.query}\nA:`;
+      }
+      const contextBuildMs = Date.now() - contextBuildStart;
 
-      // Step 2: Generate response locally using the augmented prompt
-      const response = await this.generate(options.modelId, prompt_template, {
-        temperature: options.temperature,
-        maxTokens: options.maxTokens,
-      });
+      // Step 3: Generate response — stream if callback provided
+      const genStart = Date.now();
+      let response: string;
+      let firstTokenMs = 0;
+
+      if (options.onToken) {
+        const streamResult = await this.generateStream(options.modelId, prompt_template, {
+          temperature: options.temperature,
+          maxTokens: options.maxTokens || ragConfig.maxGenTokens,
+          onToken: options.onToken,
+        });
+        response = streamResult.text;
+        firstTokenMs = streamResult.firstTokenMs;
+      } else {
+        response = await this.generate(options.modelId, prompt_template, {
+          temperature: options.temperature,
+          maxTokens: options.maxTokens || ragConfig.maxGenTokens,
+        });
+        firstTokenMs = Date.now() - genStart; // approximate
+      }
+      const generationMs = Date.now() - genStart;
+      const totalMs = Date.now() - startTime;
+      const tokensGenerated = response.split(/\s+/).length;
 
       return {
         query: options.query,
-        retrievedChunks: retrieved_chunks.map((c: any) => ({
+        retrievedChunks: (retrieved_chunks || []).map((c: any) => ({
           id: c.id,
           documentId: c.document_id,
           documentName: c.document_name,
@@ -1544,8 +1700,25 @@ class SlyOS {
         })),
         generatedResponse: response,
         context,
-        latencyMs: Date.now() - startTime,
+        latencyMs: totalMs,
         tierUsed: 2,
+        timing: {
+          retrievalMs,
+          contextBuildMs,
+          firstTokenMs,
+          generationMs,
+          totalMs,
+          tokensGenerated,
+          tokensPerSecond: generationMs > 0 ? tokensGenerated / (generationMs / 1000) : 0,
+        },
+        config: {
+          maxContextChars: ragConfig.maxContextChars,
+          maxGenTokens: ragConfig.maxGenTokens,
+          chunkSize: ragConfig.chunkSize,
+          topK: options.topK || ragConfig.topK,
+          contextWindowUsed: ragConfig.contextWindow,
+          deviceTier: ragConfig.deviceTier,
+        },
       };
     } catch (error: any) {
       this.emitEvent('error', { stage: 'rag_query', error: error.message });
@@ -1561,63 +1734,70 @@ class SlyOS {
     const startTime = Date.now();
 
     try {
+      const ragConfig = this.computeRAGConfig(options.modelId);
+
       // Step 1: Load embedding model if needed
       if (!this.localEmbeddingModel) {
         await this.loadEmbeddingModel();
       }
 
-      // Adapt chunk size based on context window for efficiency
-      const contextWindow = this.modelContextWindow || 2048;
-      const chunkSize = contextWindow <= 1024 ? 256 : contextWindow <= 2048 ? 512 : 1024;
-      const overlap = Math.floor(chunkSize / 4);
-
-      // Step 2: Chunk documents if not already chunked
+      // Step 2: Chunk and embed documents (dynamic chunk size)
+      const retrievalStart = Date.now();
       const allChunks: Array<{ content: string; documentName: string; embedding?: number[] }> = [];
       for (const doc of options.documents) {
-        const chunks = this.chunkTextLocal(doc.content, chunkSize, overlap);
+        const chunks = this.chunkTextLocal(doc.content, ragConfig.chunkSize, Math.floor(ragConfig.chunkSize / 4));
         for (const chunk of chunks) {
           const embedding = await this.embedTextLocal(chunk);
           allChunks.push({ content: chunk, documentName: doc.name || 'Document', embedding });
         }
       }
 
-      // Step 3: Embed query
+      // Step 3: Embed query and search
       const queryEmbedding = await this.embedTextLocal(options.query);
-
-      // Step 4: Cosine similarity search
       const scored = allChunks
         .filter(c => c.embedding)
-        .map(c => ({
-          ...c,
-          similarityScore: this.cosineSimilarity(queryEmbedding, c.embedding!)
-        }))
+        .map(c => ({ ...c, similarityScore: this.cosineSimilarity(queryEmbedding, c.embedding!) }))
         .sort((a, b) => b.similarityScore - a.similarityScore)
-        .slice(0, options.topK || 5);
+        .slice(0, options.topK || ragConfig.topK);
+      const retrievalMs = Date.now() - retrievalStart;
 
-      // Step 5: Build context with size limits — keep context SHORT so model has room to generate
-      const maxContextChars = contextWindow <= 2048 ? 800 : contextWindow <= 4096 ? 1500 : 3000;
-      let contextLength = 0;
-      const contextParts: string[] = [];
+      // Step 4: Build context
+      const contextBuildStart = Date.now();
+      const bestChunk = scored[0];
+      let context = bestChunk.content
+        .replace(/[^\x20-\x7E\n]/g, ' ')
+        .replace(/\s{2,}/g, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/https?:\/\/\S+/g, '')
+        .replace(/[{}()\[\]]/g, '')
+        .trim();
+      if (context.length > ragConfig.maxContextChars) context = context.substring(0, ragConfig.maxContextChars);
+      const prompt = `${context}\n\nQ: ${options.query}\nA:`;
+      const contextBuildMs = Date.now() - contextBuildStart;
 
-      for (const c of scored) {
-        const part = `[Source: ${c.documentName}]\n${c.content}`;
-        if (contextLength + part.length <= maxContextChars) {
-          contextParts.push(part);
-          contextLength += part.length + 10; // Account for separator
-        } else {
-          break;
-        }
+      // Step 5: Generate — stream if callback provided
+      const genStart = Date.now();
+      let response: string;
+      let firstTokenMs = 0;
+
+      if (options.onToken) {
+        const streamResult = await this.generateStream(options.modelId, prompt, {
+          temperature: options.temperature || 0.6,
+          maxTokens: options.maxTokens || ragConfig.maxGenTokens,
+          onToken: options.onToken,
+        });
+        response = streamResult.text;
+        firstTokenMs = streamResult.firstTokenMs;
+      } else {
+        response = await this.generate(options.modelId, prompt, {
+          temperature: options.temperature || 0.6,
+          maxTokens: options.maxTokens || ragConfig.maxGenTokens,
+        });
+        firstTokenMs = Date.now() - genStart;
       }
-
-      const context = contextParts.join('\n\n---\n\n');
-      const prompt = `Use the following information to answer the question.\n\nInfo: ${context}\n\nQuestion: ${options.query}\nAnswer:`;
-
-      // Step 6: Generate locally
-      const maxGen = contextWindow <= 2048 ? 150 : Math.min(300, Math.floor(contextWindow / 4));
-      const response = await this.generate(options.modelId, prompt, {
-        temperature: options.temperature || 0.6,
-        maxTokens: options.maxTokens || maxGen,
-      });
+      const generationMs = Date.now() - genStart;
+      const totalMs = Date.now() - startTime;
+      const tokensGenerated = response.split(/\s+/).length;
 
       return {
         query: options.query,
@@ -1631,8 +1811,25 @@ class SlyOS {
         })),
         generatedResponse: response,
         context,
-        latencyMs: Date.now() - startTime,
+        latencyMs: totalMs,
         tierUsed: 1,
+        timing: {
+          retrievalMs,
+          contextBuildMs,
+          firstTokenMs,
+          generationMs,
+          totalMs,
+          tokensGenerated,
+          tokensPerSecond: generationMs > 0 ? tokensGenerated / (generationMs / 1000) : 0,
+        },
+        config: {
+          maxContextChars: ragConfig.maxContextChars,
+          maxGenTokens: ragConfig.maxGenTokens,
+          chunkSize: ragConfig.chunkSize,
+          topK: options.topK || ragConfig.topK,
+          contextWindowUsed: ragConfig.contextWindow,
+          deviceTier: ragConfig.deviceTier,
+        },
       };
     } catch (error: any) {
       this.emitEvent('error', { stage: 'rag_local', error: error.message });
@@ -1648,59 +1845,62 @@ class SlyOS {
     const startTime = Date.now();
 
     const index = this.offlineIndexes.get(options.knowledgeBaseId);
-    if (!index) {
-      throw new Error(`Knowledge base "${options.knowledgeBaseId}" not synced. Call syncKnowledgeBase() first.`);
-    }
-
-    // Check expiry
-    if (new Date(index.metadata.expires_at) < new Date()) {
-      throw new Error('Offline index has expired. Please re-sync.');
-    }
+    if (!index) throw new Error(`KB "${options.knowledgeBaseId}" not synced.`);
+    if (new Date(index.metadata.expires_at) < new Date()) throw new Error('Offline index expired.');
 
     try {
-      // Load embedding model
-      if (!this.localEmbeddingModel) {
-        await this.loadEmbeddingModel();
-      }
+      const ragConfig = this.computeRAGConfig(options.modelId);
 
-      // Embed query
-      const queryEmbedding = await this.embedTextLocal(options.query);
+      // Load embedding model
+      if (!this.localEmbeddingModel) await this.loadEmbeddingModel();
 
       // Search offline index
+      const retrievalStart = Date.now();
+      const queryEmbedding = await this.embedTextLocal(options.query);
       const scored = index.chunks
         .filter(c => c.embedding && c.embedding.length > 0)
-        .map(c => ({
-          ...c,
-          similarityScore: this.cosineSimilarity(queryEmbedding, c.embedding!)
-        }))
+        .map(c => ({ ...c, similarityScore: this.cosineSimilarity(queryEmbedding, c.embedding!) }))
         .sort((a, b) => b.similarityScore - a.similarityScore)
-        .slice(0, options.topK || 5);
+        .slice(0, options.topK || ragConfig.topK);
+      const retrievalMs = Date.now() - retrievalStart;
 
-      // Build context with size limits — keep context SHORT so model has room to generate
-      const contextWindow = this.modelContextWindow || 2048;
-      const maxContextChars = contextWindow <= 2048 ? 800 : contextWindow <= 4096 ? 1500 : 3000;
-      let contextLength = 0;
-      const contextParts: string[] = [];
+      // Build context
+      const contextBuildStart = Date.now();
+      const bestChunk = scored[0];
+      let context = bestChunk.content
+        .replace(/[^\x20-\x7E\n]/g, ' ')
+        .replace(/\s{2,}/g, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/https?:\/\/\S+/g, '')
+        .replace(/[{}()\[\]]/g, '')
+        .trim();
+      if (context.length > ragConfig.maxContextChars) context = context.substring(0, ragConfig.maxContextChars);
+      const prompt = `${context}\n\nQ: ${options.query}\nA:`;
+      const contextBuildMs = Date.now() - contextBuildStart;
 
-      for (const c of scored) {
-        const part = `[Source: ${c.document_name}]\n${c.content}`;
-        if (contextLength + part.length <= maxContextChars) {
-          contextParts.push(part);
-          contextLength += part.length + 10;
-        } else {
-          break;
-        }
+      // Generate
+      const genStart = Date.now();
+      let response: string;
+      let firstTokenMs = 0;
+
+      if (options.onToken) {
+        const streamResult = await this.generateStream(options.modelId, prompt, {
+          temperature: options.temperature || 0.6,
+          maxTokens: options.maxTokens || ragConfig.maxGenTokens,
+          onToken: options.onToken,
+        });
+        response = streamResult.text;
+        firstTokenMs = streamResult.firstTokenMs;
+      } else {
+        response = await this.generate(options.modelId, prompt, {
+          temperature: options.temperature || 0.6,
+          maxTokens: options.maxTokens || ragConfig.maxGenTokens,
+        });
+        firstTokenMs = Date.now() - genStart;
       }
-
-      const context = contextParts.join('\n\n---\n\n');
-      const prompt = `Use the following information to answer the question.\n\nInfo: ${context}\n\nQuestion: ${options.query}\nAnswer:`;
-
-      // Generate locally
-      const maxGen = contextWindow <= 2048 ? 150 : Math.min(300, Math.floor(contextWindow / 4));
-      const response = await this.generate(options.modelId, prompt, {
-        temperature: options.temperature || 0.6,
-        maxTokens: options.maxTokens || maxGen,
-      });
+      const generationMs = Date.now() - genStart;
+      const totalMs = Date.now() - startTime;
+      const tokensGenerated = response.split(/\s+/).length;
 
       return {
         query: options.query,
@@ -1714,8 +1914,25 @@ class SlyOS {
         })),
         generatedResponse: response,
         context,
-        latencyMs: Date.now() - startTime,
+        latencyMs: totalMs,
         tierUsed: 3,
+        timing: {
+          retrievalMs,
+          contextBuildMs,
+          firstTokenMs,
+          generationMs,
+          totalMs,
+          tokensGenerated,
+          tokensPerSecond: generationMs > 0 ? tokensGenerated / (generationMs / 1000) : 0,
+        },
+        config: {
+          maxContextChars: ragConfig.maxContextChars,
+          maxGenTokens: ragConfig.maxGenTokens,
+          chunkSize: ragConfig.chunkSize,
+          topK: options.topK || ragConfig.topK,
+          contextWindowUsed: ragConfig.contextWindow,
+          deviceTier: ragConfig.deviceTier,
+        },
       };
     } catch (error: any) {
       this.emitEvent('error', { stage: 'rag_offline', error: error.message });

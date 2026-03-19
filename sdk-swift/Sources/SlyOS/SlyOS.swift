@@ -28,6 +28,7 @@ public final class SlyOS {
 
     private var deviceProfile: DeviceProfile?
     private var loadedModels: [String: LoadedModelInfo] = [:]
+    private var offlineIndexes: [String: OfflineIndex] = [:]
 
     // Telemetry batching
     private var telemetryBuffer: [TelemetryEntry] = []
@@ -36,7 +37,7 @@ public final class SlyOS {
     private static let telemetryFlushInterval: UInt64 = 60_000_000_000 // 60 seconds in nanoseconds
 
     /// SDK version string
-    public static let sdkVersion = "1.4.1"
+    public static let sdkVersion = "1.5.0"
 
     /// Information about a loaded model including inference engine and tokenizer
     private struct LoadedModelInfo {
@@ -660,6 +661,473 @@ public final class SlyOS {
                 totalTokens: promptTokens + completionTokens
             )
         )
+    }
+
+    // MARK: - Dynamic RAG Configuration
+
+    /// Compute dynamic RAG parameters based on device profile and loaded model.
+    private func computeRAGConfig(modelId: String) -> RAGConfig {
+        let contextWindow = loadedModels[modelId]?.contextWindow ?? 2048
+        let memoryMB = deviceProfile?.memoryMB ?? 4096
+        let cpuCores = deviceProfile?.cpuCores ?? 4
+        let hasGPU = deviceProfile?.gpuName != nil
+
+        // Determine device tier
+        let deviceTier: DeviceTier
+        if memoryMB >= 8192 && cpuCores >= 8 { deviceTier = .high }
+        else if memoryMB >= 4096 && cpuCores >= 4 { deviceTier = .mid }
+        else { deviceTier = .low }
+
+        // Context chars: scale with context window AND device capability
+        let maxContextChars: Int
+        if contextWindow <= 2048 {
+            maxContextChars = deviceTier == .high ? 600 : deviceTier == .mid ? 400 : 300
+        } else if contextWindow <= 4096 {
+            maxContextChars = deviceTier == .high ? 1500 : deviceTier == .mid ? 1000 : 600
+        } else {
+            maxContextChars = deviceTier == .high ? 3000 : deviceTier == .mid ? 2000 : 1000
+        }
+
+        // Gen tokens
+        let maxGenTokens: Int
+        if contextWindow <= 2048 {
+            maxGenTokens = deviceTier == .high ? 200 : deviceTier == .mid ? 150 : 100
+        } else {
+            maxGenTokens = deviceTier == .high ? 400 : deviceTier == .mid ? 300 : 150
+        }
+
+        let chunkSize = contextWindow <= 2048 ? 256 : contextWindow <= 4096 ? 512 : 1024
+        let topK = deviceTier == .high ? 5 : deviceTier == .mid ? 3 : 1
+
+        return RAGConfig(
+            maxContextChars: maxContextChars,
+            maxGenTokens: maxGenTokens,
+            chunkSize: chunkSize,
+            topK: topK,
+            contextWindowUsed: contextWindow,
+            deviceTier: deviceTier
+        )
+    }
+
+    // MARK: - RAG (Retrieval-Augmented Generation)
+
+    /// Tier 2: Cloud-indexed RAG — retrieves chunks from server, generates response on-device.
+    /// Knowledge base must be created and populated via the SlyOS dashboard.
+    ///
+    /// - Parameter options: RAG query options including knowledge base ID and query text
+    /// - Returns: RAG response with retrieved chunks and generated answer
+    public func ragQuery(_ options: RAGOptions) async throws -> RAGResponse {
+        let startTime = Date()
+        let ragConfig = computeRAGConfig(modelId: options.modelId)
+
+        emitProgress(stage: .generating, progress: 0, message: "RAG: querying knowledge base...")
+        emitEvent(type: .inferenceStart, data: ["type": AnySendable("rag"), "tier": AnySendable(2)])
+
+        // Step 1: Retrieve chunks
+        let retrievalStart = Date()
+        guard let token = await networkClient.getToken() else {
+            throw SlyOSError.authenticationFailed("Not authenticated. Call initialize() first.")
+        }
+
+        let endpoint = "\(config.apiUrl)/api/rag/knowledge-bases/\(options.knowledgeBaseId)/query"
+        guard let url = URL(string: endpoint) else {
+            throw SlyOSError.networkError("Invalid RAG endpoint URL")
+        }
+
+        let queryPayload: [String: Any] = [
+            "query": options.query,
+            "top_k": options.topK ?? ragConfig.topK,
+            "device_id": deviceId
+        ]
+        let jsonData = try JSONSerialization.data(withJSONObject: queryPayload)
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        urlRequest.httpBody = jsonData
+
+        let (data, response) = try await URLSession.shared.data(for: urlRequest)
+
+        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+            throw SlyOSError.networkError("RAG query failed")
+        }
+
+        // Parse chunks
+        let chunks = parseRAGChunks(from: data)
+        guard !chunks.isEmpty else {
+            throw SlyOSError.inferenceFailed("No relevant chunks found in knowledge base")
+        }
+        let retrievalMs = Int(Date().timeIntervalSince(retrievalStart) * 1000)
+
+        emitProgress(stage: .generating, progress: 30, message: "RAG: retrieved \(chunks.count) chunks, generating...")
+
+        // Step 2: Build context
+        let contextBuildStart = Date()
+        let bestChunk = chunks[0]
+        var context = cleanTextForContext(bestChunk.content)
+        if context.count > ragConfig.maxContextChars { context = String(context.prefix(ragConfig.maxContextChars)) }
+        let contextBuildMs = Int(Date().timeIntervalSince(contextBuildStart) * 1000)
+
+        let prompt = "\(context)\n\nQ: \(options.query)\nA:"
+
+        // Step 3: Generate
+        let genStart = Date()
+        let generatedResponse = try await generate(
+            options.modelId,
+            prompt: prompt,
+            options: GenerateOptions(
+                temperature: options.temperature ?? 0.6,
+                maxTokens: options.maxTokens ?? ragConfig.maxGenTokens
+            )
+        )
+        let firstTokenMs = Int(Date().timeIntervalSince(genStart) * 1000)
+        let generationMs = Int(Date().timeIntervalSince(genStart) * 1000)
+
+        let totalMs = Int(Date().timeIntervalSince(startTime) * 1000)
+        let tokensGenerated = generatedResponse.split(separator: " ").count
+        let tokensPerSecond = generationMs > 0 ? Double(tokensGenerated) / (Double(generationMs) / 1000.0) : 0
+
+        emitProgress(stage: .ready, progress: 100, message: "RAG complete in \(totalMs)ms")
+        emitEvent(type: .inferenceComplete, data: [
+            "type": AnySendable("rag"), "tier": AnySendable(2), "latencyMs": AnySendable(totalMs)
+        ])
+
+        return RAGResponse(
+            query: options.query,
+            retrievedChunks: chunks,
+            generatedResponse: generatedResponse,
+            context: context,
+            latencyMs: totalMs,
+            tierUsed: 2,
+            timing: RAGTiming(
+                retrievalMs: retrievalMs,
+                contextBuildMs: contextBuildMs,
+                firstTokenMs: firstTokenMs,
+                generationMs: generationMs,
+                totalMs: totalMs,
+                tokensGenerated: tokensGenerated,
+                tokensPerSecond: tokensPerSecond
+            ),
+            config: ragConfig
+        )
+    }
+
+    /// Tier 1: Fully local RAG — chunks and searches documents on-device, generates response locally.
+    /// No network calls. Pass documents directly.
+    ///
+    /// - Parameter options: Local RAG options with documents and query
+    /// - Returns: RAG response with generated answer
+    public func ragQueryLocal(_ options: RAGLocalOptions) async throws -> RAGResponse {
+        let startTime = Date()
+        let ragConfig = computeRAGConfig(modelId: options.modelId)
+
+        emitProgress(stage: .generating, progress: 0, message: "Local RAG: processing documents...")
+        emitEvent(type: .inferenceStart, data: ["type": AnySendable("rag"), "tier": AnySendable(1)])
+
+        // Step 1: Chunk all documents locally
+        let retrievalStart = Date()
+        var allChunks: [(content: String, docName: String, score: Double)] = []
+
+        for doc in options.documents {
+            let docChunks = chunkText(doc.content, chunkSize: ragConfig.chunkSize)
+            for chunk in docChunks {
+                // Simple keyword similarity scoring
+                let score = keywordSimilarity(query: options.query, text: chunk)
+                allChunks.append((content: chunk, docName: doc.name ?? "document", score: score))
+            }
+        }
+
+        // Sort by relevance, take best
+        allChunks.sort { $0.score > $1.score }
+
+        guard !allChunks.isEmpty else {
+            throw SlyOSError.inferenceFailed("No content found in provided documents")
+        }
+        let retrievalMs = Int(Date().timeIntervalSince(retrievalStart) * 1000)
+
+        emitProgress(stage: .generating, progress: 40, message: "Local RAG: found \(allChunks.count) chunks, generating...")
+
+        // Step 2: Build context from best chunk
+        let contextBuildStart = Date()
+        var context = cleanTextForContext(allChunks[0].content)
+        if context.count > ragConfig.maxContextChars { context = String(context.prefix(ragConfig.maxContextChars)) }
+        let contextBuildMs = Int(Date().timeIntervalSince(contextBuildStart) * 1000)
+
+        let prompt = "\(context)\n\nQ: \(options.query)\nA:"
+
+        // Step 3: Generate
+        let genStart = Date()
+        let generatedResponse = try await generate(
+            options.modelId,
+            prompt: prompt,
+            options: GenerateOptions(
+                temperature: options.temperature ?? 0.6,
+                maxTokens: options.maxTokens ?? ragConfig.maxGenTokens
+            )
+        )
+        let firstTokenMs = Int(Date().timeIntervalSince(genStart) * 1000)
+        let generationMs = Int(Date().timeIntervalSince(genStart) * 1000)
+
+        let totalMs = Int(Date().timeIntervalSince(startTime) * 1000)
+        let tokensGenerated = generatedResponse.split(separator: " ").count
+        let tokensPerSecond = generationMs > 0 ? Double(tokensGenerated) / (Double(generationMs) / 1000.0) : 0
+
+        let ragChunks = allChunks.prefix(3).map { chunk in
+            RAGChunk(
+                id: UUID().uuidString,
+                documentId: "local",
+                documentName: chunk.docName,
+                content: chunk.content,
+                similarityScore: chunk.score
+            )
+        }
+
+        emitProgress(stage: .ready, progress: 100, message: "Local RAG complete in \(totalMs)ms")
+        emitEvent(type: .inferenceComplete, data: [
+            "type": AnySendable("rag"), "tier": AnySendable(1), "latencyMs": AnySendable(totalMs)
+        ])
+
+        return RAGResponse(
+            query: options.query,
+            retrievedChunks: ragChunks,
+            generatedResponse: generatedResponse,
+            context: context,
+            latencyMs: totalMs,
+            tierUsed: 1,
+            timing: RAGTiming(
+                retrievalMs: retrievalMs,
+                contextBuildMs: contextBuildMs,
+                firstTokenMs: firstTokenMs,
+                generationMs: generationMs,
+                totalMs: totalMs,
+                tokensGenerated: tokensGenerated,
+                tokensPerSecond: tokensPerSecond
+            ),
+            config: ragConfig
+        )
+    }
+
+    /// Tier 3: Offline RAG — uses a pre-synced knowledge base for fully offline retrieval + generation.
+    /// Call `syncKnowledgeBase()` first to download chunks for offline use.
+    ///
+    /// - Parameter options: RAG query options
+    /// - Returns: RAG response
+    public func ragQueryOffline(_ options: RAGOptions) async throws -> RAGResponse {
+        let startTime = Date()
+        let ragConfig = computeRAGConfig(modelId: options.modelId)
+
+        guard let index = offlineIndexes[options.knowledgeBaseId] else {
+            throw SlyOSError.inferenceFailed("Knowledge base not synced. Call syncKnowledgeBase() first.")
+        }
+
+        // Check expiry
+        let formatter = ISO8601DateFormatter()
+        if let expiresDate = formatter.date(from: index.expiresAt), expiresDate < Date() {
+            throw SlyOSError.inferenceFailed("Offline index expired. Call syncKnowledgeBase() to refresh.")
+        }
+
+        emitProgress(stage: .generating, progress: 0, message: "Offline RAG: searching \(index.totalChunks) chunks...")
+        emitEvent(type: .inferenceStart, data: ["type": AnySendable("rag"), "tier": AnySendable(3)])
+
+        // Step 1: Keyword-based similarity search on offline chunks
+        let retrievalStart = Date()
+        var scoredChunks = index.chunks.map { chunk in
+            (chunk: chunk, score: keywordSimilarity(query: options.query, text: chunk.content))
+        }
+        scoredChunks.sort { $0.score > $1.score }
+
+        guard !scoredChunks.isEmpty else {
+            throw SlyOSError.inferenceFailed("No matching chunks in offline index")
+        }
+        let retrievalMs = Int(Date().timeIntervalSince(retrievalStart) * 1000)
+
+        // Step 2: Build context
+        let contextBuildStart = Date()
+        let bestChunk = scoredChunks[0].chunk
+        var context = cleanTextForContext(bestChunk.content)
+        if context.count > ragConfig.maxContextChars { context = String(context.prefix(ragConfig.maxContextChars)) }
+        let contextBuildMs = Int(Date().timeIntervalSince(contextBuildStart) * 1000)
+
+        let prompt = "\(context)\n\nQ: \(options.query)\nA:"
+
+        // Step 3: Generate
+        let genStart = Date()
+        let generatedResponse = try await generate(
+            options.modelId,
+            prompt: prompt,
+            options: GenerateOptions(
+                temperature: options.temperature ?? 0.6,
+                maxTokens: options.maxTokens ?? ragConfig.maxGenTokens
+            )
+        )
+        let firstTokenMs = Int(Date().timeIntervalSince(genStart) * 1000)
+        let generationMs = Int(Date().timeIntervalSince(genStart) * 1000)
+
+        let totalMs = Int(Date().timeIntervalSince(startTime) * 1000)
+        let tokensGenerated = generatedResponse.split(separator: " ").count
+        let tokensPerSecond = generationMs > 0 ? Double(tokensGenerated) / (Double(generationMs) / 1000.0) : 0
+
+        let ragChunks = scoredChunks.prefix(3).map { item in
+            RAGChunk(
+                id: item.chunk.id,
+                documentId: item.chunk.documentId,
+                documentName: item.chunk.documentName,
+                content: item.chunk.content,
+                similarityScore: item.score
+            )
+        }
+
+        emitProgress(stage: .ready, progress: 100, message: "Offline RAG complete in \(totalMs)ms")
+
+        return RAGResponse(
+            query: options.query,
+            retrievedChunks: ragChunks,
+            generatedResponse: generatedResponse,
+            context: context,
+            latencyMs: totalMs,
+            tierUsed: 3,
+            timing: RAGTiming(
+                retrievalMs: retrievalMs,
+                contextBuildMs: contextBuildMs,
+                firstTokenMs: firstTokenMs,
+                generationMs: generationMs,
+                totalMs: totalMs,
+                tokensGenerated: tokensGenerated,
+                tokensPerSecond: tokensPerSecond
+            ),
+            config: ragConfig
+        )
+    }
+
+    /// Sync a knowledge base for offline use.
+    /// Downloads all chunks from the server and stores them locally.
+    ///
+    /// - Parameter knowledgeBaseId: ID of the knowledge base to sync
+    /// - Returns: Sync metadata (chunk count, size, expiry)
+    public func syncKnowledgeBase(_ knowledgeBaseId: String) async throws -> (chunkCount: Int, sizeMb: Double, expiresAt: String) {
+        guard let token = await networkClient.getToken() else {
+            throw SlyOSError.authenticationFailed("Not authenticated")
+        }
+
+        let endpoint = "\(config.apiUrl)/api/rag/knowledge-bases/\(knowledgeBaseId)/sync"
+        guard let url = URL(string: endpoint) else {
+            throw SlyOSError.networkError("Invalid sync endpoint URL")
+        }
+
+        let payload: [String: Any] = ["device_id": deviceId]
+        let jsonData = try JSONSerialization.data(withJSONObject: payload)
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        urlRequest.httpBody = jsonData
+
+        let (data, response) = try await URLSession.shared.data(for: urlRequest)
+
+        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+            throw SlyOSError.networkError("Knowledge base sync failed")
+        }
+
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let metadata = json["metadata"] as? [String: Any],
+              let chunksArray = json["chunks"] as? [[String: Any]] else {
+            throw SlyOSError.networkError("Invalid sync response format")
+        }
+
+        let chunks = chunksArray.map { chunkData in
+            OfflineChunk(
+                id: chunkData["id"] as? String ?? "",
+                documentId: chunkData["document_id"] as? String ?? "",
+                documentName: chunkData["document_name"] as? String ?? "",
+                content: chunkData["content"] as? String ?? "",
+                chunkIndex: chunkData["chunk_index"] as? Int ?? 0
+            )
+        }
+
+        let expiresAt = metadata["expires_at"] as? String ?? ""
+        let index = OfflineIndex(
+            kbId: knowledgeBaseId,
+            kbName: metadata["kb_name"] as? String ?? "",
+            totalChunks: chunks.count,
+            syncedAt: metadata["synced_at"] as? String ?? "",
+            expiresAt: expiresAt,
+            chunks: chunks
+        )
+
+        offlineIndexes[knowledgeBaseId] = index
+
+        let sizeBytes = data.count
+        let sizeMb = Double(sizeBytes) / (1024 * 1024)
+
+        return (chunkCount: chunks.count, sizeMb: sizeMb, expiresAt: expiresAt)
+    }
+
+    // MARK: - RAG Helper Methods
+
+    /// Clean text for context injection — strip HTML, URLs, brackets, non-ASCII
+    private func cleanTextForContext(_ text: String) -> String {
+        var cleaned = text
+        // Strip HTML tags
+        cleaned = cleaned.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+        // Strip URLs
+        cleaned = cleaned.replacingOccurrences(of: "https?://\\S+", with: "", options: .regularExpression)
+        // Strip brackets and special chars
+        cleaned = cleaned.replacingOccurrences(of: "[{}()\\[\\]]", with: "", options: .regularExpression)
+        // Strip non-ASCII
+        cleaned = String(cleaned.unicodeScalars.filter { $0.value >= 0x20 && $0.value <= 0x7E })
+        // Collapse whitespace
+        cleaned = cleaned.replacingOccurrences(of: "\\s{2,}", with: " ", options: .regularExpression)
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Simple keyword-based similarity scoring
+    private func keywordSimilarity(query: String, text: String) -> Double {
+        let queryWords = Set(query.lowercased().split(separator: " ").map(String.init))
+        let textWords = Set(text.lowercased().split(separator: " ").map(String.init))
+        guard !queryWords.isEmpty else { return 0 }
+        let overlap = queryWords.intersection(textWords).count
+        return Double(overlap) / Double(queryWords.count)
+    }
+
+    /// Chunk text into segments with overlap
+    private func chunkText(_ text: String, chunkSize: Int = 512, overlap: Int = 128) -> [String] {
+        var chunks: [String] = []
+        var start = text.startIndex
+
+        while start < text.endIndex {
+            let end = text.index(start, offsetBy: chunkSize, limitedBy: text.endIndex) ?? text.endIndex
+            let chunk = String(text[start..<end])
+
+            if chunk.count >= 20 {
+                chunks.append(chunk)
+            }
+
+            if end == text.endIndex { break }
+            start = text.index(start, offsetBy: max(1, chunkSize - overlap), limitedBy: text.endIndex) ?? text.endIndex
+        }
+
+        return chunks
+    }
+
+    /// Parse RAG chunks from server JSON response
+    private func parseRAGChunks(from data: Data) -> [RAGChunk] {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let chunksArray = json["chunks"] as? [[String: Any]] else {
+            return []
+        }
+
+        return chunksArray.compactMap { chunkData in
+            guard let content = chunkData["content"] as? String, !content.isEmpty else { return nil }
+            return RAGChunk(
+                id: chunkData["id"] as? String ?? UUID().uuidString,
+                documentId: chunkData["document_id"] as? String ?? "",
+                documentName: chunkData["document_name"] as? String ?? "unknown",
+                content: content,
+                similarityScore: chunkData["similarity_score"] as? Double ?? chunkData["similarity"] as? Double ?? 0
+            )
+        }
     }
 
     // MARK: - Cleanup

@@ -425,6 +425,168 @@ public struct BedrockInvokeResponse: Sendable, Codable {
     }
 }
 
+// MARK: - RAG Types
+
+/// Options for RAG (Retrieval-Augmented Generation) queries
+public struct RAGOptions: Sendable {
+    public let knowledgeBaseId: String
+    public let query: String
+    public var topK: Int?
+    public let modelId: String
+    public var temperature: Float?
+    public var maxTokens: Int?
+    /// Streaming callback — called for each generated token
+    public var onToken: (@Sendable (String, String) -> Void)?
+
+    public init(
+        knowledgeBaseId: String,
+        query: String,
+        topK: Int? = nil,
+        modelId: String,
+        temperature: Float? = nil,
+        maxTokens: Int? = nil,
+        onToken: (@Sendable (String, String) -> Void)? = nil
+    ) {
+        self.knowledgeBaseId = knowledgeBaseId
+        self.query = query
+        self.topK = topK
+        self.modelId = modelId
+        self.temperature = temperature
+        self.maxTokens = maxTokens
+        self.onToken = onToken
+    }
+}
+
+/// A retrieved chunk from RAG
+public struct RAGChunk: Sendable, Codable {
+    public let id: String
+    public let documentId: String
+    public let documentName: String
+    public let content: String
+    public let similarityScore: Double
+    public var metadata: [String: String]?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case documentId = "document_id"
+        case documentName = "document_name"
+        case content
+        case similarityScore = "similarity_score"
+        case metadata
+    }
+}
+
+/// Response from a RAG query
+public struct RAGResponse: Sendable {
+    /// The original query
+    public let query: String
+    /// Retrieved chunks used for context
+    public let retrievedChunks: [RAGChunk]
+    /// The generated response
+    public let generatedResponse: String
+    /// The context string passed to the model
+    public let context: String
+    /// Total latency in milliseconds
+    public let latencyMs: Int
+    /// Which RAG tier was used (1=local, 2=cloud-indexed, 3=offline)
+    public let tierUsed: Int
+    /// Detailed timing breakdown
+    public let timing: RAGTiming
+    /// Dynamic configuration used for this query
+    public let config: RAGConfig
+}
+
+/// Detailed timing metrics for RAG queries
+public struct RAGTiming: Sendable {
+    /// Time spent retrieving/embedding chunks
+    public let retrievalMs: Int
+    /// Time spent building context
+    public let contextBuildMs: Int
+    /// Time to first generated token
+    public let firstTokenMs: Int
+    /// Total generation time
+    public let generationMs: Int
+    /// End-to-end total time
+    public let totalMs: Int
+    /// Number of tokens generated
+    public let tokensGenerated: Int
+    /// Generation throughput
+    public let tokensPerSecond: Double
+}
+
+/// Dynamic RAG configuration computed from device profile
+public struct RAGConfig: Sendable {
+    public let maxContextChars: Int
+    public let maxGenTokens: Int
+    public let chunkSize: Int
+    public let topK: Int
+    public let contextWindowUsed: Int
+    public let deviceTier: DeviceTier
+}
+
+/// Device capability tier
+public enum DeviceTier: String, Sendable {
+    case low
+    case mid
+    case high
+}
+
+/// Options for local RAG with user-provided documents
+public struct RAGLocalOptions: Sendable {
+    public let query: String
+    public let documents: [RAGDocument]
+    public let modelId: String
+    public var temperature: Float?
+    public var maxTokens: Int?
+    public var onToken: (@Sendable (String, String) -> Void)?
+
+    public init(
+        query: String,
+        documents: [RAGDocument],
+        modelId: String,
+        temperature: Float? = nil,
+        maxTokens: Int? = nil,
+        onToken: (@Sendable (String, String) -> Void)? = nil
+    ) {
+        self.query = query
+        self.documents = documents
+        self.modelId = modelId
+        self.temperature = temperature
+        self.maxTokens = maxTokens
+        self.onToken = onToken
+    }
+}
+
+/// A document for local RAG
+public struct RAGDocument: Sendable {
+    public let content: String
+    public let name: String?
+
+    public init(content: String, name: String? = nil) {
+        self.content = content
+        self.name = name
+    }
+}
+
+/// Offline knowledge base index for tier-3 RAG
+public struct OfflineIndex: Sendable {
+    public let kbId: String
+    public let kbName: String
+    public let totalChunks: Int
+    public let syncedAt: String
+    public let expiresAt: String
+    public let chunks: [OfflineChunk]
+}
+
+/// A chunk in the offline index
+public struct OfflineChunk: Sendable {
+    public let id: String
+    public let documentId: String
+    public let documentName: String
+    public let content: String
+    public let chunkIndex: Int
+}
+
 // MARK: - Error Types
 
 /// SlyOS SDK errors

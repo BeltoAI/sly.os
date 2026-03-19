@@ -340,6 +340,119 @@ data class BedrockInvokeResponse(
     val input_text_token_count: Int? = null
 )
 
+// ─── RAG Types ──────────────────────────────────────────────────────
+
+/**
+ * Options for RAG (Retrieval-Augmented Generation) queries
+ */
+data class RAGOptions(
+    val knowledgeBaseId: String,
+    val query: String,
+    val topK: Int? = null,
+    val modelId: String,
+    val temperature: Double? = null,
+    val maxTokens: Int? = null,
+    val onToken: ((token: String, partial: String) -> Unit)? = null
+)
+
+/**
+ * A retrieved chunk from RAG
+ */
+@Serializable
+data class RAGChunk(
+    val id: String,
+    @SerialName("document_id")
+    val documentId: String,
+    @SerialName("document_name")
+    val documentName: String,
+    val content: String,
+    @SerialName("similarity_score")
+    val similarityScore: Double,
+    val metadata: Map<String, String>? = null
+)
+
+/**
+ * Response from a RAG query
+ */
+data class RAGResponse(
+    val query: String,
+    val retrievedChunks: List<RAGChunk>,
+    val generatedResponse: String,
+    val context: String,
+    val latencyMs: Long,
+    val tierUsed: Int,
+    val timing: RAGTiming,
+    val config: RAGConfig
+)
+
+/**
+ * Detailed timing metrics for RAG queries
+ */
+data class RAGTiming(
+    val retrievalMs: Long,
+    val contextBuildMs: Long,
+    val firstTokenMs: Long,
+    val generationMs: Long,
+    val totalMs: Long,
+    val tokensGenerated: Int,
+    val tokensPerSecond: Double
+)
+
+/**
+ * Dynamic RAG configuration computed from device profile
+ */
+data class RAGConfig(
+    val maxContextChars: Int,
+    val maxGenTokens: Int,
+    val chunkSize: Int,
+    val topK: Int,
+    val contextWindowUsed: Int,
+    val deviceTier: String  // "low", "mid", "high"
+)
+
+/**
+ * Options for local RAG with user-provided documents
+ */
+data class RAGLocalOptions(
+    val query: String,
+    val documents: List<RAGDocument>,
+    val modelId: String,
+    val temperature: Double? = null,
+    val maxTokens: Int? = null,
+    val onToken: ((token: String, partial: String) -> Unit)? = null
+)
+
+/**
+ * A document for local RAG
+ */
+data class RAGDocument(
+    val content: String,
+    val name: String? = null
+)
+
+/**
+ * Offline knowledge base index for tier-3 RAG
+ */
+data class OfflineIndex(
+    val kbId: String,
+    val kbName: String,
+    val totalChunks: Int,
+    val syncedAt: String,
+    val expiresAt: String,
+    val chunks: List<OfflineChunk>
+)
+
+/**
+ * A chunk in the offline index
+ */
+data class OfflineChunk(
+    val id: String,
+    val documentId: String,
+    val documentName: String,
+    val content: String,
+    val chunkIndex: Int
+)
+
 // ─── Model Registry ─────────────────────────────────────────────────
 
 /**

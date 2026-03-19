@@ -329,23 +329,29 @@ async function sendMessage(userMessage) {
         const goodChunks = chunks.filter(c => (c.similarity_score || 0) > 0.3);
 
         if (goodChunks.length > 0) {
-          // Keep context SHORT — small models need room to generate
           const ctxWindow = sdk.getModelContextWindow?.() || 2048;
-          // Reserve at least 40% of context window for generation
-          const maxContextChars = ctxWindow <= 2048 ? 800 : ctxWindow <= 4096 ? 1500 : 3000;
+
+          // AGGRESSIVE context limits — small models choke on long prompts
+          // ~4 chars per token on average, reserve 60% of window for generation
+          const maxContextTokens = Math.floor(ctxWindow * 0.3);
+          const maxContextChars = ctxWindow <= 2048 ? 400 : ctxWindow <= 4096 ? 1000 : 2000;
           const maxGenTokens = ctxWindow <= 2048 ? 150 : Math.min(300, Math.floor(ctxWindow / 4));
 
-          // Clean and truncate context — strip weird chars, fit model window
-          let context = goodChunks.map(c => c.content).join('\n')
+          // Use only the single best chunk for small models
+          const bestChunk = goodChunks[0];
+          let context = bestChunk.content
             .replace(/[^\x20-\x7E\n]/g, ' ')  // Strip non-ASCII/control chars
-            .replace(/\s{3,}/g, ' ')            // Collapse excessive whitespace
-            .replace(/<[^>]+>/g, ' ')           // Strip any leftover HTML tags
-            .replace(/https?:\/\/\S+/g, '')     // Strip URLs to save tokens
+            .replace(/\s{2,}/g, ' ')            // Collapse whitespace
+            .replace(/<[^>]+>/g, ' ')           // Strip HTML tags
+            .replace(/https?:\/\/\S+/g, '')     // Strip URLs
+            .replace(/[{}()\[\]]/g, '')          // Strip brackets/braces
             .trim();
           if (context.length > maxContextChars) context = context.substring(0, maxContextChars);
 
-          // Instruction-style prompt that small models understand
-          const prompt = `Use the following information to answer the question.\n\nInfo: ${context}\n\nQuestion: ${userMessage}\nAnswer:`;
+          console.log(`${colors.dim}Context: ${context.length} chars from "${bestChunk.document_name}"${colors.reset}`);
+
+          // Minimal prompt — every token counts
+          const prompt = `${context}\n\nQ: ${userMessage}\nA:`;
           const response = await sdk.generate(config.model, prompt, {
             temperature: 0.6,
             maxTokens: maxGenTokens

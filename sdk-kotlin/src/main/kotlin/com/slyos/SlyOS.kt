@@ -45,13 +45,16 @@ class SlyOS(
     private val deviceProfiler = DeviceProfiler(context)
     private val modelDownloader = ModelDownloader(context)
 
+    // RAG offline indexes
+    private val offlineIndexes: MutableMap<String, OfflineIndex> = mutableMapOf()
+
     // Telemetry batching
     private val telemetryBuffer = mutableListOf<TelemetryEntry>()
     private var telemetryJob: Job? = null
     private val telemetryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     companion object {
-        const val SDK_VERSION = "1.4.1"
+        const val SDK_VERSION = "1.5.0"
         private const val TELEMETRY_BATCH_SIZE = 10
         private const val TELEMETRY_FLUSH_INTERVAL_MS = 60_000L
     }
@@ -467,6 +470,367 @@ class SlyOS(
             } else {
                 throw e
             }
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Dynamic RAG Configuration
+
+    /**
+     * Compute dynamic RAG parameters based on device profile and loaded model.
+     */
+    private fun computeRAGConfig(modelId: String): RAGConfig {
+        val contextWindow = models[modelId]?.contextWindow ?: 2048
+        val memoryMB = deviceProfile?.memoryMB ?: 4096
+        val cpuCores = deviceProfile?.cpuCores ?: 4
+        val hasGPU = deviceProfile?.hasGPU ?: false
+
+        val deviceTier = when {
+            memoryMB >= 8192 && cpuCores >= 8 -> "high"
+            memoryMB >= 4096 && cpuCores >= 4 -> "mid"
+            else -> "low"
+        }
+
+        val maxContextChars = when {
+            contextWindow <= 2048 -> when (deviceTier) { "high" -> 600; "mid" -> 400; else -> 300 }
+            contextWindow <= 4096 -> when (deviceTier) { "high" -> 1500; "mid" -> 1000; else -> 600 }
+            else -> when (deviceTier) { "high" -> 3000; "mid" -> 2000; else -> 1000 }
+        }
+
+        val maxGenTokens = when {
+            contextWindow <= 2048 -> when (deviceTier) { "high" -> 200; "mid" -> 150; else -> 100 }
+            else -> when (deviceTier) { "high" -> 400; "mid" -> 300; else -> 150 }
+        }
+
+        val chunkSize = when {
+            contextWindow <= 2048 -> 256
+            contextWindow <= 4096 -> 512
+            else -> 1024
+        }
+
+        val topK = when (deviceTier) { "high" -> 5; "mid" -> 3; else -> 1 }
+
+        return RAGConfig(maxContextChars, maxGenTokens, chunkSize, topK, contextWindow, deviceTier)
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // RAG (Retrieval-Augmented Generation)
+
+    /**
+     * Tier 2: Cloud-indexed RAG — retrieves chunks from server, generates response on-device.
+     * Knowledge base must be created and populated via the SlyOS dashboard.
+     */
+    suspend fun ragQuery(options: RAGOptions): RAGResponse = withContext(Dispatchers.IO) {
+        val startTime = System.currentTimeMillis()
+        val ragConfig = computeRAGConfig(options.modelId)
+
+        emitProgress(ProgressStage.GENERATING, 0, "RAG: querying knowledge base...")
+        emitEvent(EventType.INFERENCE_START, mapOf("type" to "rag", "tier" to 2))
+
+        val authToken = token ?: throw Exception("Not authenticated. Call initialize() first.")
+
+        // Step 1: Retrieve
+        val retrievalStart = System.currentTimeMillis()
+        val queryPayload = """{"query":"${options.query.replace("\"", "\\\"")}","top_k":${options.topK ?: ragConfig.topK},"device_id":"$deviceId"}"""
+        val responseBody = makeRequest(
+            "POST",
+            "$apiUrl/api/rag/knowledge-bases/${options.knowledgeBaseId}/query",
+            queryPayload,
+            authToken
+        )
+
+        val chunks = parseRAGChunks(responseBody)
+        if (chunks.isEmpty()) throw Exception("No relevant chunks found in knowledge base")
+        val retrievalMs = System.currentTimeMillis() - retrievalStart
+
+        // Step 2: Build context
+        val contextBuildStart = System.currentTimeMillis()
+        val bestChunk = chunks[0]
+        var context = cleanTextForContext(bestChunk.content)
+        if (context.length > ragConfig.maxContextChars) context = context.substring(0, ragConfig.maxContextChars)
+        val prompt = "$context\n\nQ: ${options.query}\nA:"
+        val contextBuildMs = System.currentTimeMillis() - contextBuildStart
+
+        // Step 3: Generate
+        val genStart = System.currentTimeMillis()
+        val generatedResponse = generate(
+            options.modelId, prompt,
+            GenerateOptions(temperature = options.temperature ?: 0.6, maxTokens = options.maxTokens ?: ragConfig.maxGenTokens)
+        )
+        val generationMs = System.currentTimeMillis() - genStart
+        val firstTokenMs = generationMs // approximate for non-streaming
+
+        val totalMs = System.currentTimeMillis() - startTime
+        val tokensGenerated = generatedResponse.split(" ").size
+        val tokensPerSecond = if (generationMs > 0) tokensGenerated * 1000.0 / generationMs else 0.0
+
+        emitProgress(ProgressStage.READY, 100, "RAG complete in ${totalMs}ms")
+        emitEvent(EventType.INFERENCE_COMPLETE, mapOf("type" to "rag", "tier" to 2, "latencyMs" to totalMs))
+
+        RAGResponse(
+            query = options.query,
+            retrievedChunks = chunks,
+            generatedResponse = generatedResponse,
+            context = context,
+            latencyMs = totalMs,
+            tierUsed = 2,
+            timing = RAGTiming(retrievalMs, contextBuildMs, firstTokenMs, generationMs, totalMs, tokensGenerated, tokensPerSecond),
+            config = ragConfig
+        )
+    }
+
+    /**
+     * Tier 1: Fully local RAG — chunks and searches documents on-device, generates response locally.
+     * No network calls. Pass documents directly.
+     */
+    suspend fun ragQueryLocal(options: RAGLocalOptions): RAGResponse = withContext(Dispatchers.Default) {
+        val startTime = System.currentTimeMillis()
+        val ragConfig = computeRAGConfig(options.modelId)
+
+        emitProgress(ProgressStage.GENERATING, 0, "Local RAG: processing documents...")
+        emitEvent(EventType.INFERENCE_START, mapOf("type" to "rag", "tier" to 1))
+
+        // Step 1: Chunk and score
+        val retrievalStart = System.currentTimeMillis()
+        data class ScoredChunk(val content: String, val docName: String, val score: Double)
+        val allChunks = mutableListOf<ScoredChunk>()
+
+        for (doc in options.documents) {
+            val docChunks = chunkText(doc.content, ragConfig.chunkSize)
+            for (chunk in docChunks) {
+                val score = keywordSimilarity(options.query, chunk)
+                allChunks.add(ScoredChunk(chunk, doc.name ?: "document", score))
+            }
+        }
+
+        allChunks.sortByDescending { it.score }
+        if (allChunks.isEmpty()) throw Exception("No content found in provided documents")
+        val retrievalMs = System.currentTimeMillis() - retrievalStart
+
+        // Step 2: Build context
+        val contextBuildStart = System.currentTimeMillis()
+        var context = cleanTextForContext(allChunks[0].content)
+        if (context.length > ragConfig.maxContextChars) context = context.substring(0, ragConfig.maxContextChars)
+        val prompt = "$context\n\nQ: ${options.query}\nA:"
+        val contextBuildMs = System.currentTimeMillis() - contextBuildStart
+
+        // Step 3: Generate
+        val genStart = System.currentTimeMillis()
+        val generatedResponse = generate(
+            options.modelId, prompt,
+            GenerateOptions(temperature = options.temperature ?: 0.6, maxTokens = options.maxTokens ?: ragConfig.maxGenTokens)
+        )
+        val generationMs = System.currentTimeMillis() - genStart
+        val firstTokenMs = generationMs // approximate for non-streaming
+
+        val totalMs = System.currentTimeMillis() - startTime
+        val tokensGenerated = generatedResponse.split(" ").size
+        val tokensPerSecond = if (generationMs > 0) tokensGenerated * 1000.0 / generationMs else 0.0
+
+        val ragChunks = allChunks.take(3).map { chunk ->
+            RAGChunk(
+                id = UUID.randomUUID().toString(),
+                documentId = "local",
+                documentName = chunk.docName,
+                content = chunk.content,
+                similarityScore = chunk.score
+            )
+        }
+
+        emitProgress(ProgressStage.READY, 100, "Local RAG complete in ${totalMs}ms")
+        emitEvent(EventType.INFERENCE_COMPLETE, mapOf("type" to "rag", "tier" to 1, "latencyMs" to totalMs))
+
+        RAGResponse(
+            query = options.query,
+            retrievedChunks = ragChunks,
+            generatedResponse = generatedResponse,
+            context = context,
+            latencyMs = totalMs,
+            tierUsed = 1,
+            timing = RAGTiming(retrievalMs, contextBuildMs, firstTokenMs, generationMs, totalMs, tokensGenerated, tokensPerSecond),
+            config = ragConfig
+        )
+    }
+
+    /**
+     * Tier 3: Offline RAG — uses a pre-synced knowledge base for fully offline retrieval + generation.
+     * Call [syncKnowledgeBase] first to download chunks for offline use.
+     */
+    suspend fun ragQueryOffline(options: RAGOptions): RAGResponse = withContext(Dispatchers.Default) {
+        val startTime = System.currentTimeMillis()
+        val ragConfig = computeRAGConfig(options.modelId)
+
+        val index = offlineIndexes[options.knowledgeBaseId]
+            ?: throw Exception("Knowledge base not synced. Call syncKnowledgeBase() first.")
+
+        // Check expiry
+        try {
+            val expiresAt = java.time.Instant.parse(index.expiresAt)
+            if (expiresAt.isBefore(java.time.Instant.now())) {
+                throw Exception("Offline index expired. Call syncKnowledgeBase() to refresh.")
+            }
+        } catch (_: java.time.format.DateTimeParseException) { /* skip check */ }
+
+        // Step 1: Retrieve
+        val retrievalStart = System.currentTimeMillis()
+        emitProgress(ProgressStage.GENERATING, 0, "Offline RAG: searching ${index.totalChunks} chunks...")
+        emitEvent(EventType.INFERENCE_START, mapOf("type" to "rag", "tier" to 3))
+
+        val scoredChunks = index.chunks.map { chunk ->
+            chunk to keywordSimilarity(options.query, chunk.content)
+        }.sortedByDescending { it.second }
+
+        if (scoredChunks.isEmpty()) throw Exception("No matching chunks in offline index")
+        val retrievalMs = System.currentTimeMillis() - retrievalStart
+
+        // Step 2: Build context
+        val contextBuildStart = System.currentTimeMillis()
+        val bestChunk = scoredChunks[0].first
+        var context = cleanTextForContext(bestChunk.content)
+        if (context.length > ragConfig.maxContextChars) context = context.substring(0, ragConfig.maxContextChars)
+        val prompt = "$context\n\nQ: ${options.query}\nA:"
+        val contextBuildMs = System.currentTimeMillis() - contextBuildStart
+
+        // Step 3: Generate
+        val genStart = System.currentTimeMillis()
+        val generatedResponse = generate(
+            options.modelId, prompt,
+            GenerateOptions(temperature = options.temperature ?: 0.6, maxTokens = options.maxTokens ?: ragConfig.maxGenTokens)
+        )
+        val generationMs = System.currentTimeMillis() - genStart
+        val firstTokenMs = generationMs // approximate for non-streaming
+
+        val totalMs = System.currentTimeMillis() - startTime
+        val tokensGenerated = generatedResponse.split(" ").size
+        val tokensPerSecond = if (generationMs > 0) tokensGenerated * 1000.0 / generationMs else 0.0
+
+        val ragChunks = scoredChunks.take(3).map { (chunk, score) ->
+            RAGChunk(
+                id = chunk.id,
+                documentId = chunk.documentId,
+                documentName = chunk.documentName,
+                content = chunk.content,
+                similarityScore = score
+            )
+        }
+
+        emitProgress(ProgressStage.READY, 100, "Offline RAG complete in ${totalMs}ms")
+        emitEvent(EventType.INFERENCE_COMPLETE, mapOf("type" to "rag", "tier" to 3, "latencyMs" to totalMs))
+
+        RAGResponse(
+            query = options.query,
+            retrievedChunks = ragChunks,
+            generatedResponse = generatedResponse,
+            context = context,
+            latencyMs = totalMs,
+            tierUsed = 3,
+            timing = RAGTiming(retrievalMs, contextBuildMs, firstTokenMs, generationMs, totalMs, tokensGenerated, tokensPerSecond),
+            config = ragConfig
+        )
+    }
+
+    /**
+     * Sync a knowledge base for offline use.
+     * Downloads all chunks from the server and stores them locally.
+     */
+    suspend fun syncKnowledgeBase(knowledgeBaseId: String): Triple<Int, Double, String> = withContext(Dispatchers.IO) {
+        val authToken = token ?: throw Exception("Not authenticated")
+
+        val payload = """{"device_id":"$deviceId"}"""
+        val responseBody = makeRequest(
+            "POST",
+            "$apiUrl/api/rag/knowledge-bases/$knowledgeBaseId/sync",
+            payload,
+            authToken
+        )
+
+        val jsonObj = org.json.JSONObject(responseBody)
+        val metadata = jsonObj.getJSONObject("metadata")
+        val chunksArray = jsonObj.getJSONArray("chunks")
+
+        val chunks = (0 until chunksArray.length()).map { i ->
+            val c = chunksArray.getJSONObject(i)
+            OfflineChunk(
+                id = c.optString("id", ""),
+                documentId = c.optString("document_id", ""),
+                documentName = c.optString("document_name", ""),
+                content = c.optString("content", ""),
+                chunkIndex = c.optInt("chunk_index", 0)
+            )
+        }
+
+        val expiresAt = metadata.optString("expires_at", "")
+        val index = OfflineIndex(
+            kbId = knowledgeBaseId,
+            kbName = metadata.optString("kb_name", ""),
+            totalChunks = chunks.size,
+            syncedAt = metadata.optString("synced_at", ""),
+            expiresAt = expiresAt,
+            chunks = chunks
+        )
+
+        offlineIndexes[knowledgeBaseId] = index
+
+        val sizeMb = responseBody.length.toDouble() / (1024 * 1024)
+        Triple(chunks.size, sizeMb, expiresAt)
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // RAG Helpers
+
+    /** Clean text for context injection — strip HTML, URLs, brackets, non-ASCII */
+    private fun cleanTextForContext(text: String): String {
+        return text
+            .replace(Regex("<[^>]+>"), " ")           // Strip HTML tags
+            .replace(Regex("https?://\\S+"), "")      // Strip URLs
+            .replace(Regex("[{}()\\[\\]]"), "")        // Strip brackets
+            .replace(Regex("[^\\x20-\\x7E\\n]"), " ") // Strip non-ASCII
+            .replace(Regex("\\s{2,}"), " ")            // Collapse whitespace
+            .trim()
+    }
+
+    /** Simple keyword-based similarity scoring */
+    private fun keywordSimilarity(query: String, text: String): Double {
+        val queryWords = query.lowercase().split(" ").toSet()
+        val textWords = text.lowercase().split(" ").toSet()
+        if (queryWords.isEmpty()) return 0.0
+        val overlap = queryWords.intersect(textWords).size
+        return overlap.toDouble() / queryWords.size.toDouble()
+    }
+
+    /** Chunk text into segments with overlap */
+    private fun chunkText(text: String, chunkSize: Int = 512, overlap: Int = 128): List<String> {
+        val chunks = mutableListOf<String>()
+        var start = 0
+        while (start < text.length) {
+            val end = min(start + chunkSize, text.length)
+            val chunk = text.substring(start, end)
+            if (chunk.length >= 20) chunks.add(chunk)
+            if (end == text.length) break
+            start += maxOf(1, chunkSize - overlap)
+        }
+        return chunks
+    }
+
+    /** Parse RAG chunks from server JSON response */
+    private fun parseRAGChunks(responseBody: String): List<RAGChunk> {
+        return try {
+            val jsonObj = org.json.JSONObject(responseBody)
+            val chunksArray = jsonObj.getJSONArray("chunks")
+            (0 until chunksArray.length()).mapNotNull { i ->
+                val c = chunksArray.getJSONObject(i)
+                val content = c.optString("content", "")
+                if (content.isEmpty()) null
+                else RAGChunk(
+                    id = c.optString("id", UUID.randomUUID().toString()),
+                    documentId = c.optString("document_id", ""),
+                    documentName = c.optString("document_name", "unknown"),
+                    content = content,
+                    similarityScore = c.optDouble("similarity_score", c.optDouble("similarity", 0.0))
+                )
+            }
+        } catch (e: Exception) {
+            emptyList()
         }
     }
 
