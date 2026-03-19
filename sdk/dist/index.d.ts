@@ -44,7 +44,7 @@ interface ProgressEvent {
     detail?: any;
 }
 interface SlyEvent {
-    type: 'auth' | 'device_registered' | 'device_profiled' | 'model_download_start' | 'model_download_progress' | 'model_loaded' | 'inference_start' | 'inference_complete' | 'error' | 'fallback_success' | 'fallback_error' | 'telemetry_flushed';
+    type: 'auth' | 'device_registered' | 'device_profiled' | 'model_download_start' | 'model_download_progress' | 'model_loaded' | 'inference_start' | 'inference_complete' | 'error' | 'fallback_success' | 'fallback_error' | 'telemetry_flushed' | 'token';
     data?: any;
     timestamp: number;
 }
@@ -126,6 +126,7 @@ interface RAGOptions {
     modelId: string;
     temperature?: number;
     maxTokens?: number;
+    onToken?: (token: string, partial: string) => void;
 }
 interface RAGChunk {
     id: string;
@@ -142,6 +143,23 @@ interface RAGResponse {
     context: string;
     latencyMs: number;
     tierUsed: 1 | 2 | 3;
+    timing: {
+        retrievalMs: number;
+        contextBuildMs: number;
+        firstTokenMs: number;
+        generationMs: number;
+        totalMs: number;
+        tokensGenerated: number;
+        tokensPerSecond: number;
+    };
+    config: {
+        maxContextChars: number;
+        maxGenTokens: number;
+        chunkSize: number;
+        topK: number;
+        contextWindowUsed: number;
+        deviceTier: 'low' | 'mid' | 'high';
+    };
 }
 interface OfflineIndex {
     metadata: {
@@ -223,7 +241,25 @@ declare class SlyOS {
     loadModel(modelId: string, options?: {
         quant?: QuantizationLevel;
     }): Promise<void>;
-    generate(modelId: string, prompt: string, options?: GenerateOptions): Promise<string>;
+    generate(modelId: string, prompt: string | Array<{
+        role: string;
+        content: string;
+    }>, options?: GenerateOptions): Promise<string>;
+    /**
+     * Stream text generation token-by-token.
+     * Calls onToken callback for each generated token.
+     */
+    generateStream(modelId: string, prompt: string | Array<{
+        role: string;
+        content: string;
+    }>, options?: GenerateOptions & {
+        onToken?: (token: string, partial: string) => void;
+    }): Promise<{
+        text: string;
+        firstTokenMs: number;
+        totalMs: number;
+        tokensGenerated: number;
+    }>;
     transcribe(modelId: string, audioInput: any, options?: TranscribeOptions): Promise<string>;
     chatCompletion(modelId: string, request: OpenAIChatCompletionRequest): Promise<OpenAIChatCompletionResponse>;
     bedrockInvoke(modelId: string, request: BedrockInvokeRequest): Promise<BedrockInvokeResponse>;
@@ -235,6 +271,10 @@ declare class SlyOS {
     private mapModelToOpenAI;
     private localEmbeddingModel;
     private offlineIndexes;
+    /**
+     * Compute dynamic RAG parameters based on device profile and model.
+     */
+    private computeRAGConfig;
     /**
      * Tier 2: Cloud-indexed RAG with local inference.
      * Retrieves relevant chunks from server, generates response locally.

@@ -1073,7 +1073,7 @@ class SlyOS {
 
   // ── Inference: Generate ─────────────────────────────────────────
 
-  async generate(modelId: string, prompt: string, options: GenerateOptions = {}): Promise<string> {
+  async generate(modelId: string, prompt: string | Array<{role: string; content: string}>, options: GenerateOptions = {}): Promise<string> {
     if (!this.models.has(modelId)) {
       await this.loadModel(modelId);
     }
@@ -1088,6 +1088,7 @@ class SlyOS {
     }
 
     const maxTokens = Math.min(options.maxTokens || 100, contextWindow || 2048);
+    const isMessages = Array.isArray(prompt);
 
     this.emitProgress('generating', 0, `Generating response (max ${maxTokens} tokens)...`);
     this.emitEvent('inference_start', { modelId, maxTokens });
@@ -1099,14 +1100,29 @@ class SlyOS {
         temperature: options.temperature || 0.7,
         top_p: options.topP || 0.9,
         do_sample: true,
+        repetition_penalty: 1.1,
       });
 
-      const rawOutput = result[0].generated_text;
-      // HuggingFace transformers returns the prompt + generated text concatenated.
-      // Strip the original prompt so we only return the NEW tokens.
-      const response = rawOutput.startsWith(prompt)
-        ? rawOutput.slice(prompt.length).trim()
-        : rawOutput.trim();
+      let response: string;
+      if (isMessages) {
+        // When using messages format, the pipeline returns the assistant's reply
+        // in the last message of the generated conversation
+        const generated = result[0].generated_text;
+        if (Array.isArray(generated)) {
+          // Transformers.js returns messages array — extract assistant reply
+          const assistantMsg = generated.filter((m: any) => m.role === 'assistant').pop();
+          response = assistantMsg?.content?.trim() || '';
+        } else {
+          response = typeof generated === 'string' ? generated.trim() : '';
+        }
+      } else {
+        const rawOutput = result[0].generated_text;
+        // HuggingFace transformers returns the prompt + generated text concatenated.
+        // Strip the original prompt so we only return the NEW tokens.
+        response = (typeof rawOutput === 'string' && rawOutput.startsWith(prompt as string))
+          ? rawOutput.slice((prompt as string).length).trim()
+          : (typeof rawOutput === 'string' ? rawOutput.trim() : '');
+      }
       const latency = Date.now() - startTime;
       const tokensGenerated = response.split(/\s+/).length;
       const tokensPerSec = (tokensGenerated / (latency / 1000)).toFixed(1);
@@ -1172,7 +1188,7 @@ class SlyOS {
    */
   async generateStream(
     modelId: string,
-    prompt: string,
+    prompt: string | Array<{role: string; content: string}>,
     options: GenerateOptions & { onToken?: (token: string, partial: string) => void } = {}
   ): Promise<{ text: string; firstTokenMs: number; totalMs: number; tokensGenerated: number }> {
     if (!this.models.has(modelId)) {
@@ -1184,9 +1200,12 @@ class SlyOS {
     if (info.category !== 'llm') throw new Error(`Not an LLM`);
 
     const maxTokens = Math.min(options.maxTokens || 100, contextWindow || 2048);
+    const isMessages = Array.isArray(prompt);
     const startTime = Date.now();
     let firstTokenTime = 0;
     let accumulated = '';
+    let prevText = '';
+    let callbackCount = 0;
 
     this.emitProgress('generating', 0, `Streaming (max ${maxTokens} tokens)...`);
 
@@ -1196,28 +1215,55 @@ class SlyOS {
         temperature: options.temperature || 0.7,
         top_p: options.topP || 0.9,
         do_sample: true,
-        // Transformers.js streamer callback
+        repetition_penalty: 1.1,
+        // Transformers.js v3 streamer callback — receives decoded output tokens
         callback_function: (output: any) => {
+          callbackCount++;
           if (!firstTokenTime) firstTokenTime = Date.now() - startTime;
-          if (output && output.length > 0) {
-            // output is token IDs, we need to decode
-            // The callback in transformers.js v3 gives decoded text tokens
-            const tokenText = typeof output === 'string' ? output : '';
-            if (tokenText) {
-              accumulated += tokenText;
-              options.onToken?.(tokenText, accumulated);
-              this.emitEvent('token', { token: tokenText, partial: accumulated });
+
+          // Transformers.js v3 callback_function may receive:
+          // 1. A string (decoded text so far) in some pipeline configurations
+          // 2. Token IDs array/tensor in others
+          // We handle both cases
+          let tokenText = '';
+          if (typeof output === 'string') {
+            tokenText = output;
+          } else if (output && typeof output === 'object') {
+            // For newer Transformers.js: try to extract text if available
+            if (output.text) tokenText = output.text;
+          }
+
+          if (tokenText && tokenText !== prevText) {
+            const newPart = tokenText.startsWith(prevText) ? tokenText.slice(prevText.length) : tokenText;
+            prevText = tokenText;
+            if (newPart) {
+              accumulated += newPart;
+              options.onToken?.(newPart, accumulated);
+              this.emitEvent('token', { token: newPart, partial: accumulated });
             }
           }
         }
       });
 
-      const rawOutput = result[0].generated_text;
-      const response = rawOutput.startsWith(prompt) ? rawOutput.slice(prompt.length).trim() : rawOutput.trim();
+      let response: string;
+      if (isMessages) {
+        const generated = result[0].generated_text;
+        if (Array.isArray(generated)) {
+          const assistantMsg = generated.filter((m: any) => m.role === 'assistant').pop();
+          response = assistantMsg?.content?.trim() || '';
+        } else {
+          response = typeof generated === 'string' ? generated.trim() : '';
+        }
+      } else {
+        const rawOutput = result[0].generated_text;
+        response = (typeof rawOutput === 'string' && rawOutput.startsWith(prompt as string))
+          ? rawOutput.slice((prompt as string).length).trim()
+          : (typeof rawOutput === 'string' ? rawOutput.trim() : '');
+      }
 
       if (!firstTokenTime) firstTokenTime = Date.now() - startTime;
       const totalMs = Date.now() - startTime;
-      const tokensGenerated = response.split(/\s+/).length;
+      const tokensGenerated = response.split(/\s+/).filter(Boolean).length;
 
       this.emitProgress('ready', 100, `Streamed ${tokensGenerated} tokens in ${(totalMs/1000).toFixed(1)}s`);
 
@@ -1296,20 +1342,14 @@ class SlyOS {
 
   async chatCompletion(modelId: string, request: OpenAIChatCompletionRequest): Promise<OpenAIChatCompletionResponse> {
     try {
-      // Convert OpenAI message format to a prompt string
-      const prompt = request.messages
-        .map(msg => {
-          if (msg.role === 'system') {
-            return `System: ${msg.content}`;
-          } else if (msg.role === 'user') {
-            return `User: ${msg.content}`;
-          } else {
-            return `Assistant: ${msg.content}`;
-          }
-        })
-        .join('\n\n');
+      // Pass messages directly to generate() — Transformers.js v3 applies the model's
+      // chat template automatically, which produces much better results than raw text
+      const messages = request.messages.map(msg => ({
+        role: msg.role,
+        content: msg.content,
+      }));
 
-      const response = await this.generate(modelId, prompt, {
+      const response = await this.generate(modelId, messages, {
         temperature: request.temperature,
         maxTokens: request.max_tokens,
         topP: request.top_p,
@@ -1651,17 +1691,21 @@ class SlyOS {
       );
       const retrievalMs = Date.now() - retrievalStart;
 
-      let { retrieved_chunks, prompt_template, context } = searchResponse.data;
+      let { retrieved_chunks, context } = searchResponse.data;
 
       // Step 2: Build context with dynamic limits
       const contextBuildStart = Date.now();
       if (context && context.length > ragConfig.maxContextChars) {
         context = context.substring(0, ragConfig.maxContextChars);
       }
-      // If no prompt_template from server, build minimal one
-      if (!prompt_template) {
-        prompt_template = `${context}\n\nQ: ${options.query}\nA:`;
-      }
+
+      // Build messages array for proper chat template handling
+      // This uses the model's built-in chat template (e.g. <|im_start|> for SmolLM/Qwen)
+      // which produces dramatically better results than raw text prompts
+      const messages: Array<{role: string; content: string}> = [
+        { role: 'system', content: `Answer questions using only the following context. Be concise.\n\n${context}` },
+        { role: 'user', content: options.query },
+      ];
       const contextBuildMs = Date.now() - contextBuildStart;
 
       // Step 3: Generate response — stream if callback provided
@@ -1670,7 +1714,7 @@ class SlyOS {
       let firstTokenMs = 0;
 
       if (options.onToken) {
-        const streamResult = await this.generateStream(options.modelId, prompt_template, {
+        const streamResult = await this.generateStream(options.modelId, messages, {
           temperature: options.temperature,
           maxTokens: options.maxTokens || ragConfig.maxGenTokens,
           onToken: options.onToken,
@@ -1678,7 +1722,7 @@ class SlyOS {
         response = streamResult.text;
         firstTokenMs = streamResult.firstTokenMs;
       } else {
-        response = await this.generate(options.modelId, prompt_template, {
+        response = await this.generate(options.modelId, messages, {
           temperature: options.temperature,
           maxTokens: options.maxTokens || ragConfig.maxGenTokens,
         });
@@ -1772,7 +1816,10 @@ class SlyOS {
         .replace(/[{}()\[\]]/g, '')
         .trim();
       if (context.length > ragConfig.maxContextChars) context = context.substring(0, ragConfig.maxContextChars);
-      const prompt = `${context}\n\nQ: ${options.query}\nA:`;
+      const messages: Array<{role: string; content: string}> = [
+        { role: 'system', content: `Answer questions using only the following context. Be concise.\n\n${context}` },
+        { role: 'user', content: options.query },
+      ];
       const contextBuildMs = Date.now() - contextBuildStart;
 
       // Step 5: Generate — stream if callback provided
@@ -1781,7 +1828,7 @@ class SlyOS {
       let firstTokenMs = 0;
 
       if (options.onToken) {
-        const streamResult = await this.generateStream(options.modelId, prompt, {
+        const streamResult = await this.generateStream(options.modelId, messages, {
           temperature: options.temperature || 0.6,
           maxTokens: options.maxTokens || ragConfig.maxGenTokens,
           onToken: options.onToken,
@@ -1789,7 +1836,7 @@ class SlyOS {
         response = streamResult.text;
         firstTokenMs = streamResult.firstTokenMs;
       } else {
-        response = await this.generate(options.modelId, prompt, {
+        response = await this.generate(options.modelId, messages, {
           temperature: options.temperature || 0.6,
           maxTokens: options.maxTokens || ragConfig.maxGenTokens,
         });
@@ -1875,7 +1922,10 @@ class SlyOS {
         .replace(/[{}()\[\]]/g, '')
         .trim();
       if (context.length > ragConfig.maxContextChars) context = context.substring(0, ragConfig.maxContextChars);
-      const prompt = `${context}\n\nQ: ${options.query}\nA:`;
+      const messages: Array<{role: string; content: string}> = [
+        { role: 'system', content: `Answer questions using only the following context. Be concise.\n\n${context}` },
+        { role: 'user', content: options.query },
+      ];
       const contextBuildMs = Date.now() - contextBuildStart;
 
       // Generate
@@ -1884,7 +1934,7 @@ class SlyOS {
       let firstTokenMs = 0;
 
       if (options.onToken) {
-        const streamResult = await this.generateStream(options.modelId, prompt, {
+        const streamResult = await this.generateStream(options.modelId, messages, {
           temperature: options.temperature || 0.6,
           maxTokens: options.maxTokens || ragConfig.maxGenTokens,
           onToken: options.onToken,
@@ -1892,7 +1942,7 @@ class SlyOS {
         response = streamResult.text;
         firstTokenMs = streamResult.firstTokenMs;
       } else {
-        response = await this.generate(options.modelId, prompt, {
+        response = await this.generate(options.modelId, messages, {
           temperature: options.temperature || 0.6,
           maxTokens: options.maxTokens || ragConfig.maxGenTokens,
         });

@@ -801,6 +801,7 @@ class SlyOS {
             throw new Error(`Model "${modelId}" is not an LLM. Use transcribe() for STT models.`);
         }
         const maxTokens = Math.min(options.maxTokens || 100, contextWindow || 2048);
+        const isMessages = Array.isArray(prompt);
         this.emitProgress('generating', 0, `Generating response (max ${maxTokens} tokens)...`);
         this.emitEvent('inference_start', { modelId, maxTokens });
         const startTime = Date.now();
@@ -810,13 +811,30 @@ class SlyOS {
                 temperature: options.temperature || 0.7,
                 top_p: options.topP || 0.9,
                 do_sample: true,
+                repetition_penalty: 1.1,
             });
-            const rawOutput = result[0].generated_text;
-            // HuggingFace transformers returns the prompt + generated text concatenated.
-            // Strip the original prompt so we only return the NEW tokens.
-            const response = rawOutput.startsWith(prompt)
-                ? rawOutput.slice(prompt.length).trim()
-                : rawOutput.trim();
+            let response;
+            if (isMessages) {
+                // When using messages format, the pipeline returns the assistant's reply
+                // in the last message of the generated conversation
+                const generated = result[0].generated_text;
+                if (Array.isArray(generated)) {
+                    // Transformers.js returns messages array — extract assistant reply
+                    const assistantMsg = generated.filter((m) => m.role === 'assistant').pop();
+                    response = assistantMsg?.content?.trim() || '';
+                }
+                else {
+                    response = typeof generated === 'string' ? generated.trim() : '';
+                }
+            }
+            else {
+                const rawOutput = result[0].generated_text;
+                // HuggingFace transformers returns the prompt + generated text concatenated.
+                // Strip the original prompt so we only return the NEW tokens.
+                response = (typeof rawOutput === 'string' && rawOutput.startsWith(prompt))
+                    ? rawOutput.slice(prompt.length).trim()
+                    : (typeof rawOutput === 'string' ? rawOutput.trim() : '');
+            }
             const latency = Date.now() - startTime;
             const tokensGenerated = response.split(/\s+/).length;
             const tokensPerSec = (tokensGenerated / (latency / 1000)).toFixed(1);
@@ -867,6 +885,93 @@ class SlyOS {
                     headers: { Authorization: `Bearer ${this.token}` },
                 }).catch(() => { });
             }
+            throw error;
+        }
+    }
+    /**
+     * Stream text generation token-by-token.
+     * Calls onToken callback for each generated token.
+     */
+    async generateStream(modelId, prompt, options = {}) {
+        if (!this.models.has(modelId)) {
+            await this.loadModel(modelId);
+        }
+        const loaded = this.models.get(modelId);
+        if (!loaded)
+            throw new Error(`Model "${modelId}" not loaded`);
+        const { pipe, info, contextWindow } = loaded;
+        if (info.category !== 'llm')
+            throw new Error(`Not an LLM`);
+        const maxTokens = Math.min(options.maxTokens || 100, contextWindow || 2048);
+        const isMessages = Array.isArray(prompt);
+        const startTime = Date.now();
+        let firstTokenTime = 0;
+        let accumulated = '';
+        let prevText = '';
+        let callbackCount = 0;
+        this.emitProgress('generating', 0, `Streaming (max ${maxTokens} tokens)...`);
+        try {
+            const result = await pipe(prompt, {
+                max_new_tokens: maxTokens,
+                temperature: options.temperature || 0.7,
+                top_p: options.topP || 0.9,
+                do_sample: true,
+                repetition_penalty: 1.1,
+                // Transformers.js v3 streamer callback — receives decoded output tokens
+                callback_function: (output) => {
+                    callbackCount++;
+                    if (!firstTokenTime)
+                        firstTokenTime = Date.now() - startTime;
+                    // Transformers.js v3 callback_function may receive:
+                    // 1. A string (decoded text so far) in some pipeline configurations
+                    // 2. Token IDs array/tensor in others
+                    // We handle both cases
+                    let tokenText = '';
+                    if (typeof output === 'string') {
+                        tokenText = output;
+                    }
+                    else if (output && typeof output === 'object') {
+                        // For newer Transformers.js: try to extract text if available
+                        if (output.text)
+                            tokenText = output.text;
+                    }
+                    if (tokenText && tokenText !== prevText) {
+                        const newPart = tokenText.startsWith(prevText) ? tokenText.slice(prevText.length) : tokenText;
+                        prevText = tokenText;
+                        if (newPart) {
+                            accumulated += newPart;
+                            options.onToken?.(newPart, accumulated);
+                            this.emitEvent('token', { token: newPart, partial: accumulated });
+                        }
+                    }
+                }
+            });
+            let response;
+            if (isMessages) {
+                const generated = result[0].generated_text;
+                if (Array.isArray(generated)) {
+                    const assistantMsg = generated.filter((m) => m.role === 'assistant').pop();
+                    response = assistantMsg?.content?.trim() || '';
+                }
+                else {
+                    response = typeof generated === 'string' ? generated.trim() : '';
+                }
+            }
+            else {
+                const rawOutput = result[0].generated_text;
+                response = (typeof rawOutput === 'string' && rawOutput.startsWith(prompt))
+                    ? rawOutput.slice(prompt.length).trim()
+                    : (typeof rawOutput === 'string' ? rawOutput.trim() : '');
+            }
+            if (!firstTokenTime)
+                firstTokenTime = Date.now() - startTime;
+            const totalMs = Date.now() - startTime;
+            const tokensGenerated = response.split(/\s+/).filter(Boolean).length;
+            this.emitProgress('ready', 100, `Streamed ${tokensGenerated} tokens in ${(totalMs / 1000).toFixed(1)}s`);
+            return { text: response, firstTokenMs: firstTokenTime, totalMs, tokensGenerated };
+        }
+        catch (error) {
+            this.emitProgress('error', 0, `Stream failed: ${error.message}`);
             throw error;
         }
     }
@@ -928,21 +1033,13 @@ class SlyOS {
     // ── OpenAI Compatibility ────────────────────────────────────────────
     async chatCompletion(modelId, request) {
         try {
-            // Convert OpenAI message format to a prompt string
-            const prompt = request.messages
-                .map(msg => {
-                if (msg.role === 'system') {
-                    return `System: ${msg.content}`;
-                }
-                else if (msg.role === 'user') {
-                    return `User: ${msg.content}`;
-                }
-                else {
-                    return `Assistant: ${msg.content}`;
-                }
-            })
-                .join('\n\n');
-            const response = await this.generate(modelId, prompt, {
+            // Pass messages directly to generate() — Transformers.js v3 applies the model's
+            // chat template automatically, which produces much better results than raw text
+            const messages = request.messages.map(msg => ({
+                role: msg.role,
+                content: msg.content,
+            }));
+            const response = await this.generate(modelId, messages, {
                 temperature: request.temperature,
                 maxTokens: request.max_tokens,
                 topP: request.top_p,
@@ -1180,6 +1277,45 @@ class SlyOS {
         return modelMapping[slyModelId] || 'gpt-4o-mini';
     }
     /**
+     * Compute dynamic RAG parameters based on device profile and model.
+     */
+    computeRAGConfig(modelId) {
+        const contextWindow = this.modelContextWindow || 2048;
+        const memoryMB = this.deviceProfile?.memoryMB || 4096;
+        const cpuCores = this.deviceProfile?.cpuCores || 4;
+        const hasGPU = !!(this.deviceProfile?.gpuRenderer || this.deviceProfile?.webgpuAvailable);
+        // Determine device tier
+        let deviceTier = 'low';
+        if (memoryMB >= 8192 && cpuCores >= 8)
+            deviceTier = 'high';
+        else if (memoryMB >= 4096 && cpuCores >= 4)
+            deviceTier = 'mid';
+        // Context chars: scale with context window AND device capability
+        let maxContextChars;
+        if (contextWindow <= 2048) {
+            maxContextChars = deviceTier === 'high' ? 600 : deviceTier === 'mid' ? 400 : 300;
+        }
+        else if (contextWindow <= 4096) {
+            maxContextChars = deviceTier === 'high' ? 1500 : deviceTier === 'mid' ? 1000 : 600;
+        }
+        else {
+            maxContextChars = deviceTier === 'high' ? 3000 : deviceTier === 'mid' ? 2000 : 1000;
+        }
+        // Gen tokens: scale with device tier
+        let maxGenTokens;
+        if (contextWindow <= 2048) {
+            maxGenTokens = deviceTier === 'high' ? 200 : deviceTier === 'mid' ? 150 : 100;
+        }
+        else {
+            maxGenTokens = deviceTier === 'high' ? 400 : deviceTier === 'mid' ? 300 : 150;
+        }
+        // Chunk size: larger chunks for bigger context windows
+        const chunkSize = contextWindow <= 2048 ? 256 : contextWindow <= 4096 ? 512 : 1024;
+        // TopK: more chunks for powerful devices
+        const topK = deviceTier === 'high' ? 5 : deviceTier === 'mid' ? 3 : 1;
+        return { maxContextChars, maxGenTokens, chunkSize, topK, contextWindow, deviceTier };
+    }
+    /**
      * Tier 2: Cloud-indexed RAG with local inference.
      * Retrieves relevant chunks from server, generates response locally.
      */
@@ -1188,27 +1324,55 @@ class SlyOS {
         try {
             if (!this.token)
                 throw new Error('Not authenticated. Call init() first.');
+            const ragConfig = this.computeRAGConfig(options.modelId);
             // Step 1: Retrieve relevant chunks from backend
+            const retrievalStart = Date.now();
             const searchResponse = await axios.post(`${this.apiUrl}/api/rag/knowledge-bases/${options.knowledgeBaseId}/query`, {
                 query: options.query,
-                top_k: options.topK || 5,
+                top_k: options.topK || ragConfig.topK,
                 model_id: options.modelId
             }, { headers: { Authorization: `Bearer ${this.token}` } });
-            let { retrieved_chunks, prompt_template, context } = searchResponse.data;
-            // Apply context window limits
-            const contextWindow = this.modelContextWindow || 2048;
-            const maxContextChars = (contextWindow - 200) * 3; // Rough token-to-char ratio, reserving 200 tokens
-            if (context && context.length > maxContextChars) {
-                context = context.substring(0, maxContextChars) + '...';
+            const retrievalMs = Date.now() - retrievalStart;
+            let { retrieved_chunks, context } = searchResponse.data;
+            // Step 2: Build context with dynamic limits
+            const contextBuildStart = Date.now();
+            if (context && context.length > ragConfig.maxContextChars) {
+                context = context.substring(0, ragConfig.maxContextChars);
             }
-            // Step 2: Generate response locally using the augmented prompt
-            const response = await this.generate(options.modelId, prompt_template, {
-                temperature: options.temperature,
-                maxTokens: options.maxTokens,
-            });
+            // Build messages array for proper chat template handling
+            // This uses the model's built-in chat template (e.g. <|im_start|> for SmolLM/Qwen)
+            // which produces dramatically better results than raw text prompts
+            const messages = [
+                { role: 'system', content: `Answer questions using only the following context. Be concise.\n\n${context}` },
+                { role: 'user', content: options.query },
+            ];
+            const contextBuildMs = Date.now() - contextBuildStart;
+            // Step 3: Generate response — stream if callback provided
+            const genStart = Date.now();
+            let response;
+            let firstTokenMs = 0;
+            if (options.onToken) {
+                const streamResult = await this.generateStream(options.modelId, messages, {
+                    temperature: options.temperature,
+                    maxTokens: options.maxTokens || ragConfig.maxGenTokens,
+                    onToken: options.onToken,
+                });
+                response = streamResult.text;
+                firstTokenMs = streamResult.firstTokenMs;
+            }
+            else {
+                response = await this.generate(options.modelId, messages, {
+                    temperature: options.temperature,
+                    maxTokens: options.maxTokens || ragConfig.maxGenTokens,
+                });
+                firstTokenMs = Date.now() - genStart; // approximate
+            }
+            const generationMs = Date.now() - genStart;
+            const totalMs = Date.now() - startTime;
+            const tokensGenerated = response.split(/\s+/).length;
             return {
                 query: options.query,
-                retrievedChunks: retrieved_chunks.map((c) => ({
+                retrievedChunks: (retrieved_chunks || []).map((c) => ({
                     id: c.id,
                     documentId: c.document_id,
                     documentName: c.document_name,
@@ -1218,8 +1382,25 @@ class SlyOS {
                 })),
                 generatedResponse: response,
                 context,
-                latencyMs: Date.now() - startTime,
+                latencyMs: totalMs,
                 tierUsed: 2,
+                timing: {
+                    retrievalMs,
+                    contextBuildMs,
+                    firstTokenMs,
+                    generationMs,
+                    totalMs,
+                    tokensGenerated,
+                    tokensPerSecond: generationMs > 0 ? tokensGenerated / (generationMs / 1000) : 0,
+                },
+                config: {
+                    maxContextChars: ragConfig.maxContextChars,
+                    maxGenTokens: ragConfig.maxGenTokens,
+                    chunkSize: ragConfig.chunkSize,
+                    topK: options.topK || ragConfig.topK,
+                    contextWindowUsed: ragConfig.contextWindow,
+                    deviceTier: ragConfig.deviceTier,
+                },
             };
         }
         catch (error) {
@@ -1234,56 +1415,69 @@ class SlyOS {
     async ragQueryLocal(options) {
         const startTime = Date.now();
         try {
+            const ragConfig = this.computeRAGConfig(options.modelId);
             // Step 1: Load embedding model if needed
             if (!this.localEmbeddingModel) {
                 await this.loadEmbeddingModel();
             }
-            // Adapt chunk size based on context window for efficiency
-            const contextWindow = this.modelContextWindow || 2048;
-            const chunkSize = contextWindow <= 1024 ? 256 : contextWindow <= 2048 ? 512 : 1024;
-            const overlap = Math.floor(chunkSize / 4);
-            // Step 2: Chunk documents if not already chunked
+            // Step 2: Chunk and embed documents (dynamic chunk size)
+            const retrievalStart = Date.now();
             const allChunks = [];
             for (const doc of options.documents) {
-                const chunks = this.chunkTextLocal(doc.content, chunkSize, overlap);
+                const chunks = this.chunkTextLocal(doc.content, ragConfig.chunkSize, Math.floor(ragConfig.chunkSize / 4));
                 for (const chunk of chunks) {
                     const embedding = await this.embedTextLocal(chunk);
                     allChunks.push({ content: chunk, documentName: doc.name || 'Document', embedding });
                 }
             }
-            // Step 3: Embed query
+            // Step 3: Embed query and search
             const queryEmbedding = await this.embedTextLocal(options.query);
-            // Step 4: Cosine similarity search
             const scored = allChunks
                 .filter(c => c.embedding)
-                .map(c => ({
-                ...c,
-                similarityScore: this.cosineSimilarity(queryEmbedding, c.embedding)
-            }))
+                .map(c => ({ ...c, similarityScore: this.cosineSimilarity(queryEmbedding, c.embedding) }))
                 .sort((a, b) => b.similarityScore - a.similarityScore)
-                .slice(0, options.topK || 5);
-            // Step 5: Build context with size limits — keep context SHORT so model has room to generate
-            const maxContextChars = contextWindow <= 2048 ? 800 : contextWindow <= 4096 ? 1500 : 3000;
-            let contextLength = 0;
-            const contextParts = [];
-            for (const c of scored) {
-                const part = `[Source: ${c.documentName}]\n${c.content}`;
-                if (contextLength + part.length <= maxContextChars) {
-                    contextParts.push(part);
-                    contextLength += part.length + 10; // Account for separator
-                }
-                else {
-                    break;
-                }
+                .slice(0, options.topK || ragConfig.topK);
+            const retrievalMs = Date.now() - retrievalStart;
+            // Step 4: Build context
+            const contextBuildStart = Date.now();
+            const bestChunk = scored[0];
+            let context = bestChunk.content
+                .replace(/[^\x20-\x7E\n]/g, ' ')
+                .replace(/\s{2,}/g, ' ')
+                .replace(/<[^>]+>/g, ' ')
+                .replace(/https?:\/\/\S+/g, '')
+                .replace(/[{}()\[\]]/g, '')
+                .trim();
+            if (context.length > ragConfig.maxContextChars)
+                context = context.substring(0, ragConfig.maxContextChars);
+            const messages = [
+                { role: 'system', content: `Answer questions using only the following context. Be concise.\n\n${context}` },
+                { role: 'user', content: options.query },
+            ];
+            const contextBuildMs = Date.now() - contextBuildStart;
+            // Step 5: Generate — stream if callback provided
+            const genStart = Date.now();
+            let response;
+            let firstTokenMs = 0;
+            if (options.onToken) {
+                const streamResult = await this.generateStream(options.modelId, messages, {
+                    temperature: options.temperature || 0.6,
+                    maxTokens: options.maxTokens || ragConfig.maxGenTokens,
+                    onToken: options.onToken,
+                });
+                response = streamResult.text;
+                firstTokenMs = streamResult.firstTokenMs;
             }
-            const context = contextParts.join('\n\n---\n\n');
-            const prompt = `Use the following information to answer the question.\n\nInfo: ${context}\n\nQuestion: ${options.query}\nAnswer:`;
-            // Step 6: Generate locally
-            const maxGen = contextWindow <= 2048 ? 150 : Math.min(300, Math.floor(contextWindow / 4));
-            const response = await this.generate(options.modelId, prompt, {
-                temperature: options.temperature || 0.6,
-                maxTokens: options.maxTokens || maxGen,
-            });
+            else {
+                response = await this.generate(options.modelId, messages, {
+                    temperature: options.temperature || 0.6,
+                    maxTokens: options.maxTokens || ragConfig.maxGenTokens,
+                });
+                firstTokenMs = Date.now() - genStart;
+            }
+            const generationMs = Date.now() - genStart;
+            const totalMs = Date.now() - startTime;
+            const tokensGenerated = response.split(/\s+/).length;
             return {
                 query: options.query,
                 retrievedChunks: scored.map((c, i) => ({
@@ -1296,8 +1490,25 @@ class SlyOS {
                 })),
                 generatedResponse: response,
                 context,
-                latencyMs: Date.now() - startTime,
+                latencyMs: totalMs,
                 tierUsed: 1,
+                timing: {
+                    retrievalMs,
+                    contextBuildMs,
+                    firstTokenMs,
+                    generationMs,
+                    totalMs,
+                    tokensGenerated,
+                    tokensPerSecond: generationMs > 0 ? tokensGenerated / (generationMs / 1000) : 0,
+                },
+                config: {
+                    maxContextChars: ragConfig.maxContextChars,
+                    maxGenTokens: ragConfig.maxGenTokens,
+                    chunkSize: ragConfig.chunkSize,
+                    topK: options.topK || ragConfig.topK,
+                    contextWindowUsed: ragConfig.contextWindow,
+                    deviceTier: ragConfig.deviceTier,
+                },
             };
         }
         catch (error) {
@@ -1312,52 +1523,64 @@ class SlyOS {
     async ragQueryOffline(options) {
         const startTime = Date.now();
         const index = this.offlineIndexes.get(options.knowledgeBaseId);
-        if (!index) {
-            throw new Error(`Knowledge base "${options.knowledgeBaseId}" not synced. Call syncKnowledgeBase() first.`);
-        }
-        // Check expiry
-        if (new Date(index.metadata.expires_at) < new Date()) {
-            throw new Error('Offline index has expired. Please re-sync.');
-        }
+        if (!index)
+            throw new Error(`KB "${options.knowledgeBaseId}" not synced.`);
+        if (new Date(index.metadata.expires_at) < new Date())
+            throw new Error('Offline index expired.');
         try {
+            const ragConfig = this.computeRAGConfig(options.modelId);
             // Load embedding model
-            if (!this.localEmbeddingModel) {
+            if (!this.localEmbeddingModel)
                 await this.loadEmbeddingModel();
-            }
-            // Embed query
-            const queryEmbedding = await this.embedTextLocal(options.query);
             // Search offline index
+            const retrievalStart = Date.now();
+            const queryEmbedding = await this.embedTextLocal(options.query);
             const scored = index.chunks
                 .filter(c => c.embedding && c.embedding.length > 0)
-                .map(c => ({
-                ...c,
-                similarityScore: this.cosineSimilarity(queryEmbedding, c.embedding)
-            }))
+                .map(c => ({ ...c, similarityScore: this.cosineSimilarity(queryEmbedding, c.embedding) }))
                 .sort((a, b) => b.similarityScore - a.similarityScore)
-                .slice(0, options.topK || 5);
-            // Build context with size limits — keep context SHORT so model has room to generate
-            const contextWindow = this.modelContextWindow || 2048;
-            const maxContextChars = contextWindow <= 2048 ? 800 : contextWindow <= 4096 ? 1500 : 3000;
-            let contextLength = 0;
-            const contextParts = [];
-            for (const c of scored) {
-                const part = `[Source: ${c.document_name}]\n${c.content}`;
-                if (contextLength + part.length <= maxContextChars) {
-                    contextParts.push(part);
-                    contextLength += part.length + 10;
-                }
-                else {
-                    break;
-                }
+                .slice(0, options.topK || ragConfig.topK);
+            const retrievalMs = Date.now() - retrievalStart;
+            // Build context
+            const contextBuildStart = Date.now();
+            const bestChunk = scored[0];
+            let context = bestChunk.content
+                .replace(/[^\x20-\x7E\n]/g, ' ')
+                .replace(/\s{2,}/g, ' ')
+                .replace(/<[^>]+>/g, ' ')
+                .replace(/https?:\/\/\S+/g, '')
+                .replace(/[{}()\[\]]/g, '')
+                .trim();
+            if (context.length > ragConfig.maxContextChars)
+                context = context.substring(0, ragConfig.maxContextChars);
+            const messages = [
+                { role: 'system', content: `Answer questions using only the following context. Be concise.\n\n${context}` },
+                { role: 'user', content: options.query },
+            ];
+            const contextBuildMs = Date.now() - contextBuildStart;
+            // Generate
+            const genStart = Date.now();
+            let response;
+            let firstTokenMs = 0;
+            if (options.onToken) {
+                const streamResult = await this.generateStream(options.modelId, messages, {
+                    temperature: options.temperature || 0.6,
+                    maxTokens: options.maxTokens || ragConfig.maxGenTokens,
+                    onToken: options.onToken,
+                });
+                response = streamResult.text;
+                firstTokenMs = streamResult.firstTokenMs;
             }
-            const context = contextParts.join('\n\n---\n\n');
-            const prompt = `Use the following information to answer the question.\n\nInfo: ${context}\n\nQuestion: ${options.query}\nAnswer:`;
-            // Generate locally
-            const maxGen = contextWindow <= 2048 ? 150 : Math.min(300, Math.floor(contextWindow / 4));
-            const response = await this.generate(options.modelId, prompt, {
-                temperature: options.temperature || 0.6,
-                maxTokens: options.maxTokens || maxGen,
-            });
+            else {
+                response = await this.generate(options.modelId, messages, {
+                    temperature: options.temperature || 0.6,
+                    maxTokens: options.maxTokens || ragConfig.maxGenTokens,
+                });
+                firstTokenMs = Date.now() - genStart;
+            }
+            const generationMs = Date.now() - genStart;
+            const totalMs = Date.now() - startTime;
+            const tokensGenerated = response.split(/\s+/).length;
             return {
                 query: options.query,
                 retrievedChunks: scored.map(c => ({
@@ -1370,8 +1593,25 @@ class SlyOS {
                 })),
                 generatedResponse: response,
                 context,
-                latencyMs: Date.now() - startTime,
+                latencyMs: totalMs,
                 tierUsed: 3,
+                timing: {
+                    retrievalMs,
+                    contextBuildMs,
+                    firstTokenMs,
+                    generationMs,
+                    totalMs,
+                    tokensGenerated,
+                    tokensPerSecond: generationMs > 0 ? tokensGenerated / (generationMs / 1000) : 0,
+                },
+                config: {
+                    maxContextChars: ragConfig.maxContextChars,
+                    maxGenTokens: ragConfig.maxGenTokens,
+                    chunkSize: ragConfig.chunkSize,
+                    topK: options.topK || ragConfig.topK,
+                    contextWindowUsed: ragConfig.contextWindow,
+                    deviceTier: ragConfig.deviceTier,
+                },
             };
         }
         catch (error) {

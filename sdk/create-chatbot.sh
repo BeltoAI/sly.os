@@ -367,8 +367,12 @@ async function sendMessage(userMessage) {
 
           console.log(`${colors.dim}Context: ${context.length} chars from "${bestChunk.document_name}" [retrieval: ${retrievalMs}ms, tier: ${deviceTier}]${colors.reset}`);
 
-          // Instruction prompt — avoids Q&A chain hallucination
-          const prompt = `Based on this information:\n${context}\n\nAnswer briefly: ${userMessage}\n\n`;
+          // Use messages format — the model's chat template handles formatting
+          // This is critical: raw text prompts cause instruct models to generate only 1 token
+          const messages = [
+            { role: 'system', content: 'Answer questions using only the following context. Be concise.\n\n' + context },
+            { role: 'user', content: userMessage }
+          ];
 
           // Stream tokens
           const genStart = Date.now();
@@ -376,7 +380,7 @@ async function sendMessage(userMessage) {
           process.stdout.write(`\n${colors.bright}${colors.magenta}AI:${colors.reset} `);
 
           if (sdk.generateStream) {
-            const result = await sdk.generateStream(config.model, prompt, {
+            const result = await sdk.generateStream(config.model, messages, {
               temperature: 0.6,
               maxTokens: maxGenTokens,
               onToken: (token, partial) => {
@@ -392,7 +396,7 @@ async function sendMessage(userMessage) {
             tokensGenerated = result.tokensGenerated || assistantMessage.split(/\s+/).length;
           } else {
             // Fallback: no streaming
-            const response = await sdk.generate(config.model, prompt, {
+            const response = await sdk.generate(config.model, messages, {
               temperature: 0.6,
               maxTokens: maxGenTokens
             });
@@ -411,8 +415,9 @@ async function sendMessage(userMessage) {
           const genStart = Date.now();
           process.stdout.write(`\n${colors.bright}${colors.magenta}AI:${colors.reset} `);
 
+          const noCtxMessages = [{ role: 'user', content: userMessage }];
           if (sdk.generateStream) {
-            const result = await sdk.generateStream(config.model, `Answer briefly: ${userMessage}\n\n`, {
+            const result = await sdk.generateStream(config.model, noCtxMessages, {
               temperature: 0.7, maxTokens: 100,
               onToken: (token) => {
                 if (!firstTokenMs) firstTokenMs = Date.now() - genStart;
@@ -422,7 +427,7 @@ async function sendMessage(userMessage) {
             assistantMessage = result.text || '';
             tokensGenerated = result.tokensGenerated || assistantMessage.split(/\s+/).length;
           } else {
-            const response = await sdk.generate(config.model, `Answer briefly: ${userMessage}\n\n`, {
+            const response = await sdk.generate(config.model, noCtxMessages, {
               temperature: 0.7, maxTokens: 100
             });
             assistantMessage = (typeof response === 'string' ? response : response?.text || '') || '';
@@ -435,7 +440,7 @@ async function sendMessage(userMessage) {
       } catch (ragErr) {
         console.log(`${colors.yellow}RAG failed: ${ragErr.message}${colors.reset}`);
         const genStart = Date.now();
-        const response = await sdk.generate(config.model, `Answer briefly: ${userMessage}\n\n`, {
+        const response = await sdk.generate(config.model, [{ role: 'user', content: userMessage }], {
           temperature: 0.7, maxTokens: 100
         });
         assistantMessage = (typeof response === 'string' ? response : response?.text || '') || '';
@@ -449,8 +454,9 @@ async function sendMessage(userMessage) {
       const genStart = Date.now();
       process.stdout.write(`\n${colors.bright}${colors.magenta}AI:${colors.reset} `);
 
+      const plainMessages = [{ role: 'user', content: userMessage }];
       if (sdk.generateStream) {
-        const result = await sdk.generateStream(config.model, `Answer briefly: ${userMessage}\n\n`, {
+        const result = await sdk.generateStream(config.model, plainMessages, {
           temperature: 0.7, maxTokens: 150,
           onToken: (token) => {
             if (!firstTokenMs) firstTokenMs = Date.now() - genStart;
@@ -460,7 +466,7 @@ async function sendMessage(userMessage) {
         assistantMessage = result.text || '';
         tokensGenerated = result.tokensGenerated || assistantMessage.split(/\s+/).length;
       } else {
-        const response = await sdk.generate(config.model, `Answer briefly: ${userMessage}\n\n`, {
+        const response = await sdk.generate(config.model, plainMessages, {
           temperature: 0.7, maxTokens: 150
         });
         assistantMessage = (typeof response === 'string' ? response : response?.text || '') || '';
