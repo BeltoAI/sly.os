@@ -380,6 +380,7 @@ async function sendMessage(userMessage) {
           process.stdout.write(`\n${colors.bright}${colors.magenta}AI:${colors.reset} `);
 
           if (sdk.generateStream) {
+            let streamedAny = false;
             const result = await sdk.generateStream(config.model, messages, {
               temperature: 0.6,
               maxTokens: maxGenTokens,
@@ -388,12 +389,17 @@ async function sendMessage(userMessage) {
                   firstTokenMs = Date.now() - genStart;
                   firstToken = true;
                 }
+                streamedAny = true;
                 process.stdout.write(token);
               }
             });
             assistantMessage = result.text || '';
             if (!firstToken) firstTokenMs = result.firstTokenMs || 0;
             tokensGenerated = result.tokensGenerated || assistantMessage.split(/\s+/).length;
+            // If streaming callback didn't fire, print the full response
+            if (!streamedAny && assistantMessage) {
+              process.stdout.write(assistantMessage);
+            }
           } else {
             // Fallback: no streaming
             const response = await sdk.generate(config.model, messages, {
@@ -417,15 +423,18 @@ async function sendMessage(userMessage) {
 
           const noCtxMessages = [{ role: 'user', content: userMessage }];
           if (sdk.generateStream) {
+            let streamedAny = false;
             const result = await sdk.generateStream(config.model, noCtxMessages, {
               temperature: 0.7, maxTokens: 100,
               onToken: (token) => {
                 if (!firstTokenMs) firstTokenMs = Date.now() - genStart;
+                streamedAny = true;
                 process.stdout.write(token);
               }
             });
             assistantMessage = result.text || '';
             tokensGenerated = result.tokensGenerated || assistantMessage.split(/\s+/).length;
+            if (!streamedAny && assistantMessage) process.stdout.write(assistantMessage);
           } else {
             const response = await sdk.generate(config.model, noCtxMessages, {
               temperature: 0.7, maxTokens: 100
@@ -456,15 +465,18 @@ async function sendMessage(userMessage) {
 
       const plainMessages = [{ role: 'user', content: userMessage }];
       if (sdk.generateStream) {
+        let streamedAny = false;
         const result = await sdk.generateStream(config.model, plainMessages, {
           temperature: 0.7, maxTokens: 150,
           onToken: (token) => {
             if (!firstTokenMs) firstTokenMs = Date.now() - genStart;
+            streamedAny = true;
             process.stdout.write(token);
           }
         });
         assistantMessage = result.text || '';
         tokensGenerated = result.tokensGenerated || assistantMessage.split(/\s+/).length;
+        if (!streamedAny && assistantMessage) process.stdout.write(assistantMessage);
       } else {
         const response = await sdk.generate(config.model, plainMessages, {
           temperature: 0.7, maxTokens: 150

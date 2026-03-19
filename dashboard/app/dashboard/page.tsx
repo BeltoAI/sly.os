@@ -96,11 +96,11 @@ export default function DashboardPage() {
 
         <div className="p-5 border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] rounded-xl">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-medium text-[#888888] uppercase">Today</span>
+            <span className="text-xs font-medium text-[#888888] uppercase">Inferences</span>
             <Zap className="w-4 h-4 text-[#eab308]" />
           </div>
-          <div className="text-2xl font-bold text-[#EDEDED]">{analytics.today?.total_inferences || 0}</div>
-          <p className="text-xs text-[#555555] mt-1">Inferences</p>
+          <div className="text-2xl font-bold text-[#EDEDED]">{analytics.allTime?.total_inferences || 0}</div>
+          <p className="text-xs text-[#555555] mt-1">{analytics.today?.total_inferences || 0} today</p>
         </div>
 
         <div className="p-5 border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] rounded-xl">
