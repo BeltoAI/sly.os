@@ -292,128 +292,198 @@ function printWelcome() {
 }
 
 /**
- * Send message to AI and get response
+ * Clean up model output — stop hallucinated Q&A chains, strip artifacts
+ */
+function cleanResponse(text) {
+  return text
+    // CRITICAL: Cut at first hallucinated Q&A follow-up
+    .split(/\n\s*Q\s*:/)[0]
+    // Cut at hallucinated role prefixes
+    .split(/\n\s*(User|Human|System|Question|A:|Answer):/i)[0]
+    // Strip repeated garbage chars
+    .replace(/(.)\1{5,}/g, '')
+    // Strip leading role prefixes
+    .replace(/^(assistant|system|answer|response|AI)\s*[:]\s*/i, '')
+    // Strip any remaining mid-response role prefix
+    .replace(/^\s*(assistant|AI)\s*[:]\s*/im, '')
+    .trim();
+}
+
+/**
+ * Send message to AI and get response — with timing metrics and streaming
  */
 async function sendMessage(userMessage) {
   try {
-    console.log(`${colors.dim}Thinking...${colors.reset}`);
-
+    const totalStart = Date.now();
     let assistantMessage = '';
     let sourceInfo = '';
+    let retrievalMs = 0;
+    let firstTokenMs = 0;
+    let generationMs = 0;
+    let tokensGenerated = 0;
 
     if (config.kbId) {
-      // RAG mode: call API directly to get relevant chunks, then generate locally with context
+      // ── RAG MODE ──
       console.log(`${colors.dim}Searching knowledge base...${colors.reset}`);
+      const retrievalStart = Date.now();
+
       try {
         const token = await getAuthToken();
-        if (!token) throw new Error('Could not authenticate — check your API key');
-        // Adapt chunk count to model's context window
+        if (!token) throw new Error('Could not authenticate');
+
         const modelCtx = sdk.getModelContextWindow?.() || 2048;
-        const topK = modelCtx <= 2048 ? 2 : modelCtx <= 4096 ? 3 : 5;
+        const memoryMB = 8192; // default; could read from sdk.getDeviceProfile()
+        const cpuCores = 8;
+
+        // Dynamic config based on device + model
+        const deviceTier = (memoryMB >= 8192 && cpuCores >= 8) ? 'high' : (memoryMB >= 4096) ? 'mid' : 'low';
+        const topK = deviceTier === 'high' ? 3 : deviceTier === 'mid' ? 2 : 1;
+        const maxContextChars = modelCtx <= 2048
+          ? (deviceTier === 'high' ? 600 : deviceTier === 'mid' ? 400 : 300)
+          : modelCtx <= 4096
+            ? (deviceTier === 'high' ? 1500 : 1000)
+            : 2000;
+        const maxGenTokens = modelCtx <= 2048
+          ? (deviceTier === 'high' ? 200 : 150)
+          : Math.min(400, Math.floor(modelCtx / 4));
+
         const ragRes = await fetch(`${config.server}/api/rag/knowledge-bases/${config.kbId}/query`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
           body: JSON.stringify({ query: userMessage, top_k: topK, model_id: config.model })
         });
-        if (!ragRes.ok) {
-          const errText = await ragRes.text();
-          throw new Error(`RAG query failed: ${ragRes.status} - ${errText}`);
-        }
+        if (!ragRes.ok) throw new Error(`RAG ${ragRes.status}`);
         const ragData = await ragRes.json();
-        const chunks = ragData.retrieved_chunks || [];
+        const chunks = (ragData.retrieved_chunks || []).filter(c => (c.similarity_score || 0) > 0.3);
+        retrievalMs = Date.now() - retrievalStart;
 
-        // Check if chunks are relevant enough (similarity > 0.3)
-        const goodChunks = chunks.filter(c => (c.similarity_score || 0) > 0.3);
-
-        if (goodChunks.length > 0) {
-          const ctxWindow = sdk.getModelContextWindow?.() || 2048;
-
-          // AGGRESSIVE context limits — small models choke on long prompts
-          // ~4 chars per token on average, reserve 60% of window for generation
-          const maxContextTokens = Math.floor(ctxWindow * 0.3);
-          const maxContextChars = ctxWindow <= 2048 ? 400 : ctxWindow <= 4096 ? 1000 : 2000;
-          const maxGenTokens = ctxWindow <= 2048 ? 150 : Math.min(300, Math.floor(ctxWindow / 4));
-
-          // Use only the single best chunk for small models
-          const bestChunk = goodChunks[0];
+        if (chunks.length > 0) {
+          const bestChunk = chunks[0];
           let context = bestChunk.content
-            .replace(/[^\x20-\x7E\n]/g, ' ')  // Strip non-ASCII/control chars
-            .replace(/\s{2,}/g, ' ')            // Collapse whitespace
-            .replace(/<[^>]+>/g, ' ')           // Strip HTML tags
-            .replace(/https?:\/\/\S+/g, '')     // Strip URLs
-            .replace(/[{}()\[\]]/g, '')          // Strip brackets/braces
-            .trim();
+            .replace(/[^\x20-\x7E\n]/g, ' ').replace(/\s{2,}/g, ' ')
+            .replace(/<[^>]+>/g, ' ').replace(/https?:\/\/\S+/g, '')
+            .replace(/[{}()\[\]]/g, '').trim();
           if (context.length > maxContextChars) context = context.substring(0, maxContextChars);
 
-          console.log(`${colors.dim}Context: ${context.length} chars from "${bestChunk.document_name}"${colors.reset}`);
+          console.log(`${colors.dim}Context: ${context.length} chars from "${bestChunk.document_name}" [retrieval: ${retrievalMs}ms, tier: ${deviceTier}]${colors.reset}`);
 
-          // Minimal prompt — every token counts
-          const prompt = `${context}\n\nQ: ${userMessage}\nA:`;
-          const response = await sdk.generate(config.model, prompt, {
-            temperature: 0.6,
-            maxTokens: maxGenTokens
-          });
-          assistantMessage = (typeof response === 'string' ? response : response?.text || response?.content || '') || '';
+          // Instruction prompt — avoids Q&A chain hallucination
+          const prompt = `Based on this information:\n${context}\n\nAnswer briefly: ${userMessage}\n\n`;
 
-          // Collect source names
-          const sources = [...new Set(goodChunks.map(c => c.document_name || c.source).filter(Boolean))];
-          if (sources.length > 0) {
-            sourceInfo = `\n${colors.dim}[Sources: ${sources.join(', ')}]${colors.reset}`;
+          // Stream tokens
+          const genStart = Date.now();
+          let firstToken = false;
+          process.stdout.write(`\n${colors.bright}${colors.magenta}AI:${colors.reset} `);
+
+          if (sdk.generateStream) {
+            const result = await sdk.generateStream(config.model, prompt, {
+              temperature: 0.6,
+              maxTokens: maxGenTokens,
+              onToken: (token, partial) => {
+                if (!firstToken) {
+                  firstTokenMs = Date.now() - genStart;
+                  firstToken = true;
+                }
+                process.stdout.write(token);
+              }
+            });
+            assistantMessage = result.text || '';
+            if (!firstToken) firstTokenMs = result.firstTokenMs || 0;
+            tokensGenerated = result.tokensGenerated || assistantMessage.split(/\s+/).length;
+          } else {
+            // Fallback: no streaming
+            const response = await sdk.generate(config.model, prompt, {
+              temperature: 0.6,
+              maxTokens: maxGenTokens
+            });
+            assistantMessage = (typeof response === 'string' ? response : response?.text || '') || '';
+            firstTokenMs = Date.now() - genStart;
+            tokensGenerated = assistantMessage.split(/\s+/).length;
+            process.stdout.write(assistantMessage);
           }
+          generationMs = Date.now() - genStart;
+
+          // Source info
+          const sources = [...new Set(chunks.map(c => c.document_name || c.source).filter(Boolean))];
+          if (sources.length > 0) sourceInfo = `\n${colors.dim}[Sources: ${sources.join(', ')}]${colors.reset}`;
         } else {
-          // No relevant chunks — answer conversationally
-          console.log(`${colors.dim}No RAG context found, using plain generation...${colors.reset}`);
-          const prompt = `The user said: "${userMessage}"\nGive a brief, friendly response:\n`;
-          const response = await sdk.generate(config.model, prompt, {
-            temperature: 0.7,
-            maxTokens: 100
-          });
-          assistantMessage = (typeof response === 'string' ? response : response?.text || response?.content || '') || '';
+          console.log(`${colors.dim}No relevant context found [retrieval: ${retrievalMs}ms]${colors.reset}`);
+          const genStart = Date.now();
+          process.stdout.write(`\n${colors.bright}${colors.magenta}AI:${colors.reset} `);
+
+          if (sdk.generateStream) {
+            const result = await sdk.generateStream(config.model, `Answer briefly: ${userMessage}\n\n`, {
+              temperature: 0.7, maxTokens: 100,
+              onToken: (token) => {
+                if (!firstTokenMs) firstTokenMs = Date.now() - genStart;
+                process.stdout.write(token);
+              }
+            });
+            assistantMessage = result.text || '';
+            tokensGenerated = result.tokensGenerated || assistantMessage.split(/\s+/).length;
+          } else {
+            const response = await sdk.generate(config.model, `Answer briefly: ${userMessage}\n\n`, {
+              temperature: 0.7, maxTokens: 100
+            });
+            assistantMessage = (typeof response === 'string' ? response : response?.text || '') || '';
+            firstTokenMs = Date.now() - genStart;
+            tokensGenerated = assistantMessage.split(/\s+/).length;
+            process.stdout.write(assistantMessage);
+          }
+          generationMs = Date.now() - genStart;
         }
       } catch (ragErr) {
-        console.log(`${colors.yellow}RAG lookup failed: ${ragErr.message}${colors.reset}`);
-        const prompt = `The user said: "${userMessage}"\nGive a brief, friendly response:\n`;
-        const response = await sdk.generate(config.model, prompt, {
-          temperature: 0.7,
-          maxTokens: 100
+        console.log(`${colors.yellow}RAG failed: ${ragErr.message}${colors.reset}`);
+        const genStart = Date.now();
+        const response = await sdk.generate(config.model, `Answer briefly: ${userMessage}\n\n`, {
+          temperature: 0.7, maxTokens: 100
         });
-        assistantMessage = (typeof response === 'string' ? response : response?.text || response?.content || '') || '';
+        assistantMessage = (typeof response === 'string' ? response : response?.text || '') || '';
+        firstTokenMs = Date.now() - genStart;
+        generationMs = firstTokenMs;
+        tokensGenerated = assistantMessage.split(/\s+/).length;
+        process.stdout.write(`\n${colors.bright}${colors.magenta}AI:${colors.reset} ${assistantMessage}`);
       }
     } else {
-      // Plain mode: direct generation (no RAG)
-      const prompt = `The user said: "${userMessage}"\nGive a brief, helpful response:\n`;
-      const response = await sdk.generate(config.model, prompt, {
-        temperature: 0.7,
-        maxTokens: 150
-      });
-      assistantMessage = (typeof response === 'string' ? response : response?.text || response?.content || '') || '';
+      // ── PLAIN MODE ──
+      const genStart = Date.now();
+      process.stdout.write(`\n${colors.bright}${colors.magenta}AI:${colors.reset} `);
+
+      if (sdk.generateStream) {
+        const result = await sdk.generateStream(config.model, `Answer briefly: ${userMessage}\n\n`, {
+          temperature: 0.7, maxTokens: 150,
+          onToken: (token) => {
+            if (!firstTokenMs) firstTokenMs = Date.now() - genStart;
+            process.stdout.write(token);
+          }
+        });
+        assistantMessage = result.text || '';
+        tokensGenerated = result.tokensGenerated || assistantMessage.split(/\s+/).length;
+      } else {
+        const response = await sdk.generate(config.model, `Answer briefly: ${userMessage}\n\n`, {
+          temperature: 0.7, maxTokens: 150
+        });
+        assistantMessage = (typeof response === 'string' ? response : response?.text || '') || '';
+        firstTokenMs = Date.now() - genStart;
+        tokensGenerated = assistantMessage.split(/\s+/).length;
+        process.stdout.write(assistantMessage);
+      }
+      generationMs = Date.now() - genStart;
     }
 
-    // Clean up model output artifacts
-    assistantMessage = assistantMessage
-      // Strip repeated garbage chars (!!!, ???, etc)
-      .replace(/(.)\1{5,}/g, '')
-      // Strip leading role prefixes the model loves to emit
-      .replace(/^(assistant|system|answer|response|AI)\s*[:]\s*/i, '')
-      // Remove leading partial sentences (fragments before the real answer)
-      .replace(/^[a-z][^.!?]{0,40}\.\s*/i, function(match) {
-        // Only strip if it looks like a fragment (< 50 chars ending in period)
-        return match.length < 50 && !match.includes(' is ') ? '' : match;
-      })
-      // Stop at any hallucinated role prefixes mid-response
-      .split(/\n\s*(User|Human|System|Question):/i)[0]
-      // Strip any remaining leading role prefix after newline
-      .replace(/^\s*(assistant|AI)\s*[:]\s*/im, '')
-      .trim();
+    // Clean up hallucinated Q&A chains
+    assistantMessage = cleanResponse(assistantMessage);
+
+    const totalMs = Date.now() - totalStart;
+    const tokPerSec = generationMs > 0 ? (tokensGenerated / (generationMs / 1000)).toFixed(1) : '0';
+
+    // Print timing summary
+    console.log(sourceInfo);
+    console.log(`${colors.dim}⏱  retrieval: ${retrievalMs}ms | first token: ${firstTokenMs}ms | generation: ${generationMs}ms | total: ${totalMs}ms | ${tokensGenerated} tokens @ ${tokPerSec} tok/s${colors.reset}\n`);
 
     if (!assistantMessage || assistantMessage.length < 3) {
-      assistantMessage = '(No response generated — try rephrasing your question)';
+      console.log(`${colors.yellow}(No response generated — try rephrasing your question)${colors.reset}\n`);
     }
-
-    console.log(`\n${colors.bright}${colors.magenta}AI:${colors.reset} ${assistantMessage}${sourceInfo}\n`);
   } catch (error) {
     console.error(`\n${colors.red}Error:${colors.reset} ${error.message}\n`);
   }
