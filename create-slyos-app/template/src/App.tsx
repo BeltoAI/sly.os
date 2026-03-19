@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import SlyOS from '@emilshirokikh/slyos-sdk';
+import SlyOS from '@beltoinc/slyos-sdk';
 
 interface Message {
   id: string;

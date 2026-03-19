@@ -1,0 +1,46 @@
+This is BibTeX, Version 0.99d (TeX Live 2022/dev/Debian)
+Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
+The top-level auxiliary file: SlyOS_Edge_LLM_Research_Paper.aux
+The style file: plainnat.bst
+Database file #1: edging.bib
+You've used 53 entries,
+            2773 wiz_defined-function locations,
+            827 strings with 15918 characters,
+and the built_in function-call counts, 31691 in all, are:
+= -- 2605
+> -- 2795
+< -- 20
++ -- 944
+- -- 888
+* -- 2804
+:= -- 5098
+add.period$ -- 159
+call.type$ -- 53
+change.case$ -- 447
+chr.to.int$ -- 50
+cite$ -- 106
+duplicate$ -- 1168
+empty$ -- 1902
+format.name$ -- 945
+if$ -- 6415
+int.to.chr$ -- 4
+int.to.str$ -- 1
+missing$ -- 51
+newline$ -- 273
+num.names$ -- 212
+pop$ -- 865
+preamble$ -- 1
+purify$ -- 392
+quote$ -- 0
+skip$ -- 1074
+stack$ -- 0
+substring$ -- 789
+swap$ -- 164
+text.length$ -- 9
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 583
+warning$ -- 0
+while$ -- 206
+width$ -- 0
+write$ -- 668

@@ -1,6 +1,6 @@
 # SlyOS
 
-[![npm version](https://img.shields.io/npm/v/@emilshirokikh/slyos-sdk?style=flat-square)](https://www.npmjs.com/package/@emilshirokikh/slyos-sdk)
+[![npm version](https://img.shields.io/npm/v/@beltoinc/slyos-sdk?style=flat-square)](https://www.npmjs.com/package/@beltoinc/slyos-sdk)
 [![License](https://img.shields.io/badge/license-Proprietary-red?style=flat-square)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0%2B-blue?style=flat-square)](https://www.typescriptlang.org/)
 
@@ -40,13 +40,13 @@ Perfect for building privacy-first applications, offline-capable services, and c
 ### 1. Install
 
 ```bash
-npm install @emilshirokikh/slyos-sdk
+npm install @beltoinc/slyos-sdk
 ```
 
 ### 2. Initialize & Generate
 
 ```javascript
-import SlyOS from '@emilshirokikh/slyos-sdk';
+import SlyOS from '@beltoinc/slyos-sdk';
 
 // Initialize SDK with your API key
 const sdk = new SlyOS({
@@ -81,7 +81,7 @@ console.log(response);
 Use SlyOS as a drop-in replacement for OpenAI:
 
 ```javascript
-import SlyOS from '@emilshirokikh/slyos-sdk';
+import SlyOS from '@beltoinc/slyos-sdk';
 
 const sdk = new SlyOS({
   apiKey: 'sk_your_api_key_here'
@@ -211,7 +211,7 @@ Built with:
 
 - **Documentation:** [docs.slyos.world](https://docs.slyos.world)
 - **GitHub Issues:** [Report issues here](https://github.com/BeltoAI/sly.os/issues)
-- **npm Package:** [@emilshirokikh/slyos-sdk](https://www.npmjs.com/package/@emilshirokikh/slyos-sdk)
+- **npm Package:** [@beltoinc/slyos-sdk](https://www.npmjs.com/package/@beltoinc/slyos-sdk)
 
 ---
 

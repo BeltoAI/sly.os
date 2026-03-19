@@ -499,9 +499,9 @@ export default function SettingsPage() {
             <CardContent className="space-y-4">
               <div className="bg-[#050505] border border-[rgba(255,255,255,0.06)] rounded-lg p-4 font-mono text-xs text-[#4ade80] overflow-x-auto leading-relaxed">
                 <span style={{color:'#888888'}}>// Install SDK</span>{'\n'}
-                <span style={{color:'#FF4D00'}}>npm install</span> @emilshirokikh/slyos-sdk{'\n\n'}
+                <span style={{color:'#FF4D00'}}>npm install</span> @beltoinc/slyos-sdk{'\n\n'}
                 <span style={{color:'#888888'}}>// Initialize</span>{'\n'}
-                <span style={{color:'#FF4D00'}}>import</span> SlyOS <span style={{color:'#FF4D00'}}>from</span> <span style={{color:'#4ade80'}}>'@emilshirokikh/slyos-sdk'</span>;{'\n'}
+                <span style={{color:'#FF4D00'}}>import</span> SlyOS <span style={{color:'#FF4D00'}}>from</span> <span style={{color:'#4ade80'}}>'@beltoinc/slyos-sdk'</span>;{'\n'}
                 <span style={{color:'#FF4D00'}}>await</span> SlyOS.<span style={{color:'#8be9fd'}}>init</span>({'{'} apiKey: <span style={{color:'#4ade80'}}>'{apiKey.substring(0, 20)}...'</span> {'}'});{'\n\n'}
                 <span style={{color:'#888888'}}>// Generate</span>{'\n'}
                 <span style={{color:'#FF4D00'}}>const</span> response = <span style={{color:'#FF4D00'}}>await</span> SlyOS.<span style={{color:'#8be9fd'}}>generate</span>(<span style={{color:'#4ade80'}}>'quantum-1.7b'</span>, <span style={{color:'#4ade80'}}>'Hello!'</span>);

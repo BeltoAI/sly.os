@@ -427,10 +427,10 @@ const profile = await slyos.initialize();
         <div id="sdk-js" data-section>
           <SectionHeading id="sdk-js" title="3.1 JavaScript / TypeScript SDK" level={2} />
           <P>
-            The JS SDK (<Mono>@emilshirokikh/slyos-sdk</Mono>) runs in browsers and Node.js using
+            The JS SDK (<Mono>@beltoinc/slyos-sdk</Mono>) runs in browsers and Node.js using
             Hugging Face Transformers.js with ONNX/WASM backend. Install via npm:
           </P>
-          <CodeBlock language="bash" code={`npm install @emilshirokikh/slyos-sdk`} />
+          <CodeBlock language="bash" code={`npm install @beltoinc/slyos-sdk`} />
 
           <DocTable
             headers={['Method', 'Signature', 'Description']}
@@ -446,7 +446,7 @@ const profile = await slyos.initialize();
             ]}
           />
 
-          <CodeBlock language="typescript" code={`import SlyOS from '@emilshirokikh/slyos-sdk';
+          <CodeBlock language="typescript" code={`import SlyOS from '@beltoinc/slyos-sdk';
 
 const slyos = new SlyOS({
   apiKey: 'sk_live_...',

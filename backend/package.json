@@ -1,5 +1,5 @@
 {
-  "name": "@belto/slyos-backend",
+  "name": "@beltoinc/slyos-backend",
   "version": "1.0.0",
   "description": "SlyOS Mission Control Backend API",
   "main": "server.js",

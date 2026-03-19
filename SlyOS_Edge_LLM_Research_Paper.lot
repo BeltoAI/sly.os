@@ -1,0 +1,48 @@
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {table}{\numberline {2.1}{\ignorespaces Typical memory hierarchy for edge inference targets\relax }}{28}{table.caption.6}%
+\addvspace {10\p@ }
+\contentsline {table}{\numberline {3.1}{\ignorespaces Execution provider selection by platform\relax }}{32}{table.caption.8}%
+\contentsline {table}{\numberline {3.2}{\ignorespaces Device profile signals by platform\relax }}{34}{table.caption.10}%
+\contentsline {table}{\numberline {3.3}{\ignorespaces API endpoint summary\relax }}{36}{table.caption.12}%
+\addvspace {10\p@ }
+\contentsline {table}{\numberline {4.1}{\ignorespaces Projected per-token decode performance for a 1.7B INT4 model (derived from published benchmarks for Llama 3.2 1B and Phi-3-mini 3.8B; see Chapter\nobreakspace {}\ref {ch:evaluation} for methodology)\relax }}{41}{table.caption.14}%
+\addvspace {10\p@ }
+\contentsline {table}{\numberline {5.1}{\ignorespaces Published perplexity on WikiText-2 for LLaMA-family models (from AWQ and GPTQ papers). Lower is better.\relax }}{46}{table.caption.16}%
+\contentsline {table}{\numberline {5.2}{\ignorespaces Model weight storage (computed) and estimated peak memory. Weight storage is exact ($P \times b/8 + \text {group overhead}$); peak RAM estimates include 100--200 MB for KV cache (512-token context), ONNX Runtime session, and tokenizer.\relax }}{46}{table.caption.17}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {table}{\numberline {8.1}{\ignorespaces Telemetry event types and their payloads\relax }}{54}{table.caption.19}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {table}{\numberline {10.1}{\ignorespaces Published on-device LLM inference benchmarks (independently verifiable)\relax }}{61}{table.caption.21}%
+\contentsline {table}{\numberline {10.2}{\ignorespaces Projected per-token decode latency for the \textsc {SlyOS}\xspace runtime. Values are derived from published benchmarks (Table\nobreakspace {}\ref {tab:published_benchmarks}) with ORT overhead correction. Ranges reflect uncertainty.\relax }}{63}{table.caption.22}%
+\contentsline {table}{\numberline {10.3}{\ignorespaces Model weight storage (computed, not measured)\relax }}{64}{table.caption.23}%
+\contentsline {table}{\numberline {10.4}{\ignorespaces Projected battery impact for a 1B INT4 model on a flagship device (4,400 mAh). Power draw of 5 W during inference is based on published Qwen 1.5B measurements (CAIN 2025).\relax }}{66}{table.caption.24}%
+\contentsline {table}{\numberline {10.5}{\ignorespaces Expected perplexity degradation from INT4 quantization (projected from published AWQ/GPTQ results, not measured on our specific models)\relax }}{68}{table.caption.25}%
+\contentsline {table}{\numberline {10.6}{\ignorespaces Cost comparison for varying usage levels (per device per month, Pure Edge plan)\relax }}{70}{table.caption.26}%
+\contentsline {table}{\numberline {10.7}{\ignorespaces Evaluation status summary\relax }}{71}{table.caption.27}%
+\addvspace {10\p@ }
+\contentsline {table}{\numberline {11.1}{\ignorespaces Anthropic Claude API pricing (per million tokens, 2026)\relax }}{75}{table.caption.28}%
+\contentsline {table}{\numberline {11.2}{\ignorespaces Annual cost comparison: cloud-only vs.\ hybrid edge-cloud inference\relax }}{77}{table.caption.29}%
+\contentsline {table}{\numberline {11.3}{\ignorespaces Annual cost comparison at global scale (1 billion devices, 20 requests/device/day)\relax }}{79}{table.caption.30}%
+\contentsline {table}{\numberline {11.4}{\ignorespaces Energy comparison: cloud versus on-device inference per request\relax }}{80}{table.caption.31}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {table}{\numberline {13.1}{\ignorespaces The SlyOS integrated stack layers and their responsibilities}}{100}{table.caption.40}%
+\contentsline {table}{\numberline {13.2}{\ignorespaces Summary of novel contributions and differentiation from prior work\relax }}{102}{table.caption.41}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {table}{\numberline {15.1}{\ignorespaces Risk assessment matrix for SlyOS deployment\relax }}{112}{table.caption.44}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {table}{\numberline {18.1}{\ignorespaces Competitive comparison of edge AI inference frameworks}}{130}{table.caption.46}%
+\contentsline {table}{\numberline {18.2}{\ignorespaces Competitive moat analysis for the shared inference layer\relax }}{134}{table.caption.48}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {table}{\numberline {A.1}{\ignorespaces Summary of mathematical notation used throughout this report\relax }}{145}{table.caption.53}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {table}{\numberline {C.1}{\ignorespaces Model compatibility by device RAM\relax }}{150}{table.caption.54}%

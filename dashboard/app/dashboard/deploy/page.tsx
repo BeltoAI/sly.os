@@ -83,13 +83,13 @@ export default function DeployPage() {
       num: 1,
       title: 'Install SDK',
       icon: Copy,
-      code: 'npm install @emilshirokikh/slyos-sdk',
+      code: 'npm install @beltoinc/slyos-sdk',
     },
     {
       num: 2,
       title: 'Initialize with Progress Tracking',
       icon: Code2,
-      code: `import SlyOS from '@emilshirokikh/slyos-sdk';
+      code: `import SlyOS from '@beltoinc/slyos-sdk';
 
 const sdk = new SlyOS({
   apiKey: '${apiKey}',

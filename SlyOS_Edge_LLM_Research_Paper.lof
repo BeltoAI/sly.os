@@ -1,0 +1,36 @@
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {figure}{\numberline {3.1}{\ignorespaces High-level system architecture. Edge devices run ONNX Runtime with platform-specific execution providers. The backend handles authentication, model metadata, RAG vector search, and telemetry aggregation.\relax }}{30}{figure.caption.7}%
+\contentsline {figure}{\numberline {3.2}{\ignorespaces Entity-relationship diagram of the core database schema}}{35}{figure.caption.11}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {figure}{\numberline {5.1}{\ignorespaces Layer sensitivity heatmap for the Quantum-1.7B model. Each cell represents the perplexity increase when that specific weight matrix is quantized to INT4 in isolation. Attention Q and K projections in the first and last three layers exhibit the highest sensitivity, motivating finer group quantization ($g = 32$) for these layers.\relax }}{45}{figure.caption.15}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {figure}{\numberline {8.1}{\ignorespaces Dashboard analytics visualizations. Left: 24-hour inference event timeline showing typical diurnal usage pattern with peak activity during business hours. Right: Model usage distribution across the device fleet; the 1.7B variant is the most popular due to its quality-size balance.\relax }}{56}{figure.caption.20}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {figure}{\numberline {12.1}{\ignorespaces Simplified routing decision flow. Privacy-sensitive prompts are forced to edge; non-sensitive prompts are routed based on complexity assessment. Budget and device state constraints (not shown) override at any decision point.\relax }}{91}{figure.caption.32}%
+\addvspace {10\p@ }
+\contentsline {figure}{\numberline {13.1}{\ignorespaces Traditional multi-pipeline deployment versus SlyOS single-artifact deployment. The traditional approach requires $M \times P$ conversion and validation pipelines. SlyOS requires exactly one.\relax }}{93}{figure.caption.33}%
+\addvspace {10\p@ }
+\contentsline {figure}{\numberline {14.1}{\ignorespaces Architectural analogy between a traditional operating system and SlyOS. Each OS layer has a direct counterpart in the SlyOS stack: hardware abstraction (execution providers), scheduling (inference engine), system services (routing, RAG, telemetry), and the application SDK.\relax }}{105}{figure.caption.42}%
+\contentsline {figure}{\numberline {14.2}{\ignorespaces Annual energy consumption comparison for 1 billion devices at 10 requests/day. Cloud inference (0.39 J/tok) consumes 108 GWh/year versus edge inference (0.012 J/tok) at 3.3 GWh/year---a 97.3\% reduction saving 41,880 metric tons of CO$_2$.\relax }}{107}{figure.caption.43}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {figure}{\numberline {16.1}{\ignorespaces SlyOS default operating points across eight fundamental engineering tradeoffs. Each axis represents a tension between competing objectives; the circle marks where SlyOS's default configuration sits. Applications can adjust these operating points via the SDK configuration API.\relax }}{121}{figure.caption.45}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {figure}{\numberline {18.1}{\ignorespaces Architecture of the SlyOS shared inference layer. A single optimized foundation model serves all applications; each app provides only an isolated RAG context (10--100\,MB) that is dynamically swapped in milliseconds. The intelligent router determines when to serve on-device versus escalating to cloud. This eliminates redundant model storage and RAM competition across applications.\relax }}{132}{figure.caption.47}%
+\contentsline {figure}{\numberline {18.2}{\ignorespaces Mobile NPU performance (TOPS) from the first neural engines (2017) to projected 2028 capabilities. The green band marks the SlyOS deployment window. Data sources: Apple, Qualcomm, and MediaTek published specifications and roadmaps.\relax }}{136}{figure.caption.49}%
+\contentsline {figure}{\numberline {18.3}{\ignorespaces Flagship device RAM (2017--2028). Dotted horizontal lines indicate the approximate memory thresholds required for on-device inference of 3B and 7B parameter INT4 models, accounting for OS and application overhead.\relax }}{137}{figure.caption.50}%
+\contentsline {figure}{\numberline {18.4}{\ignorespaces The on-device model size frontier: the largest LLM capable of interactive-speed inference ($>$10 tok/s) on flagship consumer hardware. Quality-equivalence lines are approximate and based on published benchmarks (MMLU, HumanEval). The inflection point in 2024--2025 marks the transition from toy demonstrations to production-viable on-device inference.\relax }}{138}{figure.caption.51}%
+\contentsline {figure}{\numberline {18.5}{\ignorespaces Projected edge deflection rate (percentage of requests handled on-device) for a typical SlyOS deployment. The shaded band indicates the range across different use cases; simple Q\&A and short-form generation reach higher deflection earlier, while complex reasoning and long-context tasks require cloud routing longer. Each percentage point of deflection improvement reduces cloud API costs directly.\relax }}{139}{figure.caption.52}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }

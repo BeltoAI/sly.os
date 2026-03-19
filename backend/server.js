@@ -904,7 +904,7 @@ app.post('/api/auth/register', async (req, res) => {
           </div>
           <div style="background: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 12px; padding: 24px; margin: 24px 0;">
             <p style="color: #EDEDED; font-size: 14px; font-weight: 600; margin: 0 0 12px;">Quick Start</p>
-            <code style="display: block; background: #111; color: #4ade80; padding: 12px 16px; border-radius: 8px; font-size: 12px; white-space: pre;">npm install @emilshirokikh/slyos-sdk</code>
+            <code style="display: block; background: #111; color: #4ade80; padding: 12px 16px; border-radius: 8px; font-size: 12px; white-space: pre;">npm install @beltoinc/slyos-sdk</code>
           </div>
           <div style="text-align: center; margin: 32px 0;">
             <a href="${process.env.DASHBOARD_URL || 'https://dashboard.slyos.world'}/dashboard" style="display: inline-block; background: #FF4D00; color: white; padding: 14px 32px; border-radius: 12px; text-decoration: none; font-weight: 600; font-size: 14px;">Open Dashboard →</a>

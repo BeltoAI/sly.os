@@ -1,6 +1,6 @@
 {
-  "name": "@emilshirokikh/slyos-sdk",
-  "version": "1.4.1",
+  "name": "@beltoinc/slyos-sdk",
+  "version": "1.5.0",
   "description": "SlyOS - On-Device AI SDK for Web and Node.js",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -15,13 +15,15 @@
     "machine-learning",
     "llm",
     "transformers",
-    "slyos"
+    "slyos",
+    "edge-ai",
+    "rag"
   ],
-  "author": "Emil Shirokikh",
+  "author": "Belto Inc.",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/emilshirokikh/slyos-sdk.git"
+    "url": "https://github.com/BeltoAI/sly.os.git"
   },
   "dependencies": {
     "axios": "^1.6.5",

@@ -1,0 +1,216 @@
+\contentsline {chapter}{Abstract}{3}{chapter*.1}%
+\contentsline {chapter}{List of Abbreviations}{18}{chapter*.5}%
+\contentsline {chapter}{\numberline {1}Introduction}{20}{chapter.1}%
+\contentsline {section}{\numberline {1.1}Motivation and Problem Statement}{20}{section.1.1}%
+\contentsline {section}{\numberline {1.2}Contributions}{21}{section.1.2}%
+\contentsline {section}{\numberline {1.3}Scope and Limitations}{22}{section.1.3}%
+\contentsline {section}{\numberline {1.4}Document Organization}{22}{section.1.4}%
+\contentsline {chapter}{\numberline {2}Background and Foundations}{24}{chapter.2}%
+\contentsline {section}{\numberline {2.1}The Transformer Architecture}{24}{section.2.1}%
+\contentsline {subsection}{\numberline {2.1.1}Self-Attention}{24}{subsection.2.1.1}%
+\contentsline {subsection}{\numberline {2.1.2}Multi-Head Attention and Its Variants}{25}{subsection.2.1.2}%
+\contentsline {subsection}{\numberline {2.1.3}Position Encoding}{25}{subsection.2.1.3}%
+\contentsline {subsection}{\numberline {2.1.4}Feed-Forward Networks and Gating}{26}{subsection.2.1.4}%
+\contentsline {section}{\numberline {2.2}Quantization Theory}{27}{section.2.2}%
+\contentsline {subsection}{\numberline {2.2.1}Symmetric vs. Asymmetric Quantization}{27}{subsection.2.2.1}%
+\contentsline {subsection}{\numberline {2.2.2}Per-Tensor, Per-Channel, and Group Quantization}{27}{subsection.2.2.2}%
+\contentsline {subsection}{\numberline {2.2.3}Post-Training Quantization vs. Quantization-Aware Training}{28}{subsection.2.2.3}%
+\contentsline {section}{\numberline {2.3}Edge Inference Constraints}{28}{section.2.3}%
+\contentsline {subsection}{\numberline {2.3.1}Memory Hierarchy}{28}{subsection.2.3.1}%
+\contentsline {subsection}{\numberline {2.3.2}Thermal Management}{29}{subsection.2.3.2}%
+\contentsline {subsection}{\numberline {2.3.3}Heterogeneous Execution Providers}{29}{subsection.2.3.3}%
+\contentsline {chapter}{\numberline {3}System Architecture}{30}{chapter.3}%
+\contentsline {section}{\numberline {3.1}Architecture Overview}{30}{section.3.1}%
+\contentsline {section}{\numberline {3.2}Client SDK Design}{31}{section.3.2}%
+\contentsline {subsection}{\numberline {3.2.1}Model Downloader}{31}{subsection.3.2.1}%
+\contentsline {subsection}{\numberline {3.2.2}Inference Engine}{32}{subsection.3.2.2}%
+\contentsline {subsection}{\numberline {3.2.3}Tokenizer}{33}{subsection.3.2.3}%
+\contentsline {subsection}{\numberline {3.2.4}Device Profiler}{34}{subsection.3.2.4}%
+\contentsline {section}{\numberline {3.3}Backend Infrastructure}{34}{section.3.3}%
+\contentsline {subsection}{\numberline {3.3.1}Database Schema}{34}{subsection.3.3.1}%
+\contentsline {subsection}{\numberline {3.3.2}API Design}{35}{subsection.3.3.2}%
+\contentsline {subsection}{\numberline {3.3.3}Model Registry}{36}{subsection.3.3.3}%
+\contentsline {chapter}{\numberline {4}On-Device Inference Pipeline}{38}{chapter.4}%
+\contentsline {section}{\numberline {4.1}Model Loading and Session Initialization}{38}{section.4.1}%
+\contentsline {section}{\numberline {4.2}Execution Provider Selection}{39}{section.4.2}%
+\contentsline {section}{\numberline {4.3}Autoregressive Generation}{40}{section.4.3}%
+\contentsline {subsection}{\numberline {4.3.1}Sampling Strategies}{40}{subsection.4.3.1}%
+\contentsline {subsection}{\numberline {4.3.2}Expected Token-per-Second Throughput}{40}{subsection.4.3.2}%
+\contentsline {section}{\numberline {4.4}Speech-to-Text Pipeline}{41}{section.4.4}%
+\contentsline {subsection}{\numberline {4.4.1}Audio Preprocessing}{41}{subsection.4.4.1}%
+\contentsline {subsection}{\numberline {4.4.2}Encoder-Decoder Inference}{42}{subsection.4.4.2}%
+\contentsline {chapter}{\numberline {5}Model Quantization and Compression}{43}{chapter.5}%
+\contentsline {section}{\numberline {5.1}The Case for 4-Bit Quantization}{43}{section.5.1}%
+\contentsline {section}{\numberline {5.2}Activation-Aware Weight Quantization}{43}{section.5.2}%
+\contentsline {section}{\numberline {5.3}Quantization Pipeline}{44}{section.5.3}%
+\contentsline {section}{\numberline {5.4}Layer Sensitivity Analysis}{45}{section.5.4}%
+\contentsline {section}{\numberline {5.5}Quantization Quality Results}{45}{section.5.5}%
+\contentsline {section}{\numberline {5.6}Size and Memory Footprint}{46}{section.5.6}%
+\contentsline {chapter}{\numberline {6}Device Intelligence Framework}{48}{chapter.6}%
+\contentsline {section}{\numberline {6.1}Hardware Capability Profiling}{48}{section.6.1}%
+\contentsline {section}{\numberline {6.2}Model Compatibility Scoring}{49}{section.6.2}%
+\contentsline {section}{\numberline {6.3}Automatic Configuration Selection}{49}{section.6.3}%
+\contentsline {section}{\numberline {6.4}Device Fingerprinting}{50}{section.6.4}%
+\contentsline {chapter}{\numberline {7}Hybrid Retrieval-Augmented Generation}{51}{chapter.7}%
+\contentsline {section}{\numberline {7.1}Knowledge Base Ingestion}{51}{section.7.1}%
+\contentsline {section}{\numberline {7.2}Vector Retrieval}{52}{section.7.2}%
+\contentsline {subsection}{\numberline {7.2.1}Privacy Considerations}{52}{subsection.7.2.1}%
+\contentsline {section}{\numberline {7.3}Context Window Management}{52}{section.7.3}%
+\contentsline {section}{\numberline {7.4}Hallucination Reduction}{53}{section.7.4}%
+\contentsline {chapter}{\numberline {8}Telemetry and Observability}{54}{chapter.8}%
+\contentsline {section}{\numberline {8.1}Event Model}{54}{section.8.1}%
+\contentsline {section}{\numberline {8.2}Batched Transmission}{54}{section.8.2}%
+\contentsline {section}{\numberline {8.3}Fleet Analytics}{55}{section.8.3}%
+\contentsline {section}{\numberline {8.4}Dashboard Visualization}{55}{section.8.4}%
+\contentsline {chapter}{\numberline {9}Security and Privacy}{57}{chapter.9}%
+\contentsline {section}{\numberline {9.1}Authentication and Authorization}{57}{section.9.1}%
+\contentsline {section}{\numberline {9.2}Data-in-Transit Protection}{58}{section.9.2}%
+\contentsline {section}{\numberline {9.3}Data-at-Rest Protection}{58}{section.9.3}%
+\contentsline {section}{\numberline {9.4}Privacy Architecture}{58}{section.9.4}%
+\contentsline {subsection}{\numberline {9.4.1}Regulatory Compliance}{59}{subsection.9.4.1}%
+\contentsline {section}{\numberline {9.5}Model Security}{59}{section.9.5}%
+\contentsline {chapter}{\numberline {10}Empirical Evaluation}{60}{chapter.10}%
+\contentsline {section}{\numberline {10.1}Published Baseline Benchmarks}{60}{section.10.1}%
+\contentsline {section}{\numberline {10.2}Projected Performance for the SlyOS Runtime}{62}{section.10.2}%
+\contentsline {section}{\numberline {10.3}Memory Consumption Analysis}{63}{section.10.3}%
+\contentsline {subsection}{\numberline {10.3.1}Weight Storage}{64}{subsection.10.3.1}%
+\contentsline {subsection}{\numberline {10.3.2}Runtime Memory Overhead}{64}{subsection.10.3.2}%
+\contentsline {section}{\numberline {10.4}Thermal Behavior}{65}{section.10.4}%
+\contentsline {section}{\numberline {10.5}Battery Life Impact}{65}{section.10.5}%
+\contentsline {subsection}{\numberline {10.5.1}Published Power Measurements}{66}{subsection.10.5.1}%
+\contentsline {subsection}{\numberline {10.5.2}Usage Scenario Projections}{66}{subsection.10.5.2}%
+\contentsline {subsection}{\numberline {10.5.3}Energy Efficiency of Quantization}{67}{subsection.10.5.3}%
+\contentsline {subsection}{\numberline {10.5.4}Edge vs. Cloud: Device-Side Energy}{67}{subsection.10.5.4}%
+\contentsline {section}{\numberline {10.6}Quantization Quality Assessment}{67}{section.10.6}%
+\contentsline {subsection}{\numberline {10.6.1}Published Quality Baselines}{68}{subsection.10.6.1}%
+\contentsline {subsection}{\numberline {10.6.2}Expected Quality for Our Pipeline}{68}{subsection.10.6.2}%
+\contentsline {section}{\numberline {10.7}Cost Analysis}{69}{section.10.7}%
+\contentsline {section}{\numberline {10.8}Summary of Evaluation}{70}{section.10.8}%
+\contentsline {chapter}{\numberline {11}Deployment Case Studies}{72}{chapter.11}%
+\contentsline {section}{\numberline {11.1}Case Study 1: Duolingo---Consumer AI at 50 Million DAU}{72}{section.11.1}%
+\contentsline {subsection}{\numberline {11.1.1}Current Architecture and API Dependency}{72}{subsection.11.1.1}%
+\contentsline {subsection}{\numberline {11.1.2}The Unit Economics Problem}{73}{subsection.11.1.2}%
+\contentsline {subsection}{\numberline {11.1.3}The Edge Inference Alternative}{73}{subsection.11.1.3}%
+\contentsline {subsection}{\numberline {11.1.4}Technical Feasibility Assessment}{74}{subsection.11.1.4}%
+\contentsline {section}{\numberline {11.2}Case Study 2: Anthropic---The Inference Cost Ceiling}{75}{section.11.2}%
+\contentsline {subsection}{\numberline {11.2.1}The Frontier Model Economics Problem}{75}{subsection.11.2.1}%
+\contentsline {subsection}{\numberline {11.2.2}GPU Infrastructure Requirements}{76}{subsection.11.2.2}%
+\contentsline {subsection}{\numberline {11.2.3}The Rate Limit Constraint}{76}{subsection.11.2.3}%
+\contentsline {subsection}{\numberline {11.2.4}Where Edge Inference Complements Cloud}{76}{subsection.11.2.4}%
+\contentsline {section}{\numberline {11.3}Case Study 3: Global-Scale Edge AI---1 Billion Devices}{78}{section.11.3}%
+\contentsline {subsection}{\numberline {11.3.1}The Cloud Inference Bottleneck at Planetary Scale}{78}{subsection.11.3.1}%
+\contentsline {subsection}{\numberline {11.3.2}The SlyOS Alternative: Zero Marginal Inference Cost}{79}{subsection.11.3.2}%
+\contentsline {subsection}{\numberline {11.3.3}Environmental Impact: Eliminating Data Center Load}{79}{subsection.11.3.3}%
+\contentsline {subsection}{\numberline {11.3.4}The Latency Dividend at Scale}{80}{subsection.11.3.4}%
+\contentsline {subsection}{\numberline {11.3.5}Enabling AI Where There Is No Internet}{81}{subsection.11.3.5}%
+\contentsline {chapter}{\numberline {12}Intelligent Prompt Routing}{82}{chapter.12}%
+\contentsline {section}{\numberline {12.1}Problem Formulation}{82}{section.12.1}%
+\contentsline {section}{\numberline {12.2}Routing Decision Factors}{82}{section.12.2}%
+\contentsline {subsection}{\numberline {12.2.1}Prompt Complexity}{83}{subsection.12.2.1}%
+\contentsline {subsection}{\numberline {12.2.2}Device Capability}{83}{subsection.12.2.2}%
+\contentsline {subsection}{\numberline {12.2.3}Network Conditions}{84}{subsection.12.2.3}%
+\contentsline {subsection}{\numberline {12.2.4}Privacy Requirements}{84}{subsection.12.2.4}%
+\contentsline {subsection}{\numberline {12.2.5}Cost Budget}{85}{subsection.12.2.5}%
+\contentsline {subsection}{\numberline {12.2.6}Historical Performance}{85}{subsection.12.2.6}%
+\contentsline {section}{\numberline {12.3}Routing Strategies}{86}{section.12.3}%
+\contentsline {subsection}{\numberline {12.3.1}Strategy 1: Rule-Based Routing}{86}{subsection.12.3.1}%
+\contentsline {subsection}{\numberline {12.3.2}Strategy 2: Confidence-Based Routing}{86}{subsection.12.3.2}%
+\contentsline {subsection}{\numberline {12.3.3}Strategy 3: Lightweight Classifier Routing}{87}{subsection.12.3.3}%
+\contentsline {subsection}{\numberline {12.3.4}Strategy 4: Cascade Routing}{87}{subsection.12.3.4}%
+\contentsline {section}{\numberline {12.4}Routing Decision Examples}{88}{section.12.4}%
+\contentsline {subsection}{\numberline {12.4.1}Scenario 1: Simple Factual Query}{88}{subsection.12.4.1}%
+\contentsline {subsection}{\numberline {12.4.2}Scenario 2: Multi-Step Reasoning}{89}{subsection.12.4.2}%
+\contentsline {subsection}{\numberline {12.4.3}Scenario 3: Privacy-Sensitive Medical Query}{89}{subsection.12.4.3}%
+\contentsline {subsection}{\numberline {12.4.4}Scenario 4: Offline Usage}{89}{subsection.12.4.4}%
+\contentsline {subsection}{\numberline {12.4.5}Scenario 5: Long-Form Content Generation}{89}{subsection.12.4.5}%
+\contentsline {subsection}{\numberline {12.4.6}Scenario 6: Budget Exhaustion}{90}{subsection.12.4.6}%
+\contentsline {section}{\numberline {12.5}Implementation Architecture}{90}{section.12.5}%
+\contentsline {chapter}{\numberline {13}Novelty and Technological Contributions}{92}{chapter.13}%
+\contentsline {section}{\numberline {13.1}Contribution 1: Universal Model Artifact with Zero Platform Conversion}{92}{section.13.1}%
+\contentsline {section}{\numberline {13.2}Contribution 2: Device-Adaptive Quantization via 23-Signal Hardware Profiling}{94}{section.13.2}%
+\contentsline {section}{\numberline {13.3}Contribution 3: Per-Layer Variable Group-Size AWQ}{95}{section.13.3}%
+\contentsline {section}{\numberline {13.4}Contribution 4: Privacy-Preserving Hybrid RAG with Architectural Separation}{96}{section.13.4}%
+\contentsline {section}{\numberline {13.5}Contribution 5: Multi-Objective Edge-Cloud Routing with Formal Optimization}{98}{section.13.5}%
+\contentsline {section}{\numberline {13.6}Contribution 6: The Integrated System as a Novel Artifact}{99}{section.13.6}%
+\contentsline {section}{\numberline {13.7}Summary of Novel Contributions}{101}{section.13.7}%
+\contentsline {chapter}{\numberline {14}Vision --- The SlyOS Paradigm}{103}{chapter.14}%
+\contentsline {section}{\numberline {14.1}SlyOS as an Operating System}{103}{section.14.1}%
+\contentsline {section}{\numberline {14.2}The Vision: AI Everywhere and Anywhere}{105}{section.14.2}%
+\contentsline {section}{\numberline {14.3}Sustainable AI Through Edge Inference}{106}{section.14.3}%
+\contentsline {section}{\numberline {14.4}Privacy by Architecture}{107}{section.14.4}%
+\contentsline {section}{\numberline {14.5}Breaking AI Monopolies}{108}{section.14.5}%
+\contentsline {section}{\numberline {14.6}The Technical Feasibility}{109}{section.14.6}%
+\contentsline {section}{\numberline {14.7}Toward an AI-Native Ecosystem}{110}{section.14.7}%
+\contentsline {chapter}{\numberline {15}Risks}{112}{chapter.15}%
+\contentsline {section}{\numberline {15.1}Technical Risks}{113}{section.15.1}%
+\contentsline {subsection}{\numberline {15.1.1}Model Quality Degradation from Aggressive Quantization}{113}{subsection.15.1.1}%
+\contentsline {subsection}{\numberline {15.1.2}Hardware Fragmentation and NNAPI Inconsistency}{113}{subsection.15.1.2}%
+\contentsline {subsection}{\numberline {15.1.3}Thermal Throttling and Performance Degradation}{114}{subsection.15.1.3}%
+\contentsline {subsection}{\numberline {15.1.4}Memory Pressure on Low-End Devices}{115}{subsection.15.1.4}%
+\contentsline {subsection}{\numberline {15.1.5}ONNX Runtime Stability and Versioning}{115}{subsection.15.1.5}%
+\contentsline {subsection}{\numberline {15.1.6}WebAssembly Performance Ceiling}{116}{subsection.15.1.6}%
+\contentsline {subsection}{\numberline {15.1.7}Model Size Growth Outpacing Device Capability}{116}{subsection.15.1.7}%
+\contentsline {section}{\numberline {15.2}Non-Technical Risks}{117}{section.15.2}%
+\contentsline {subsection}{\numberline {15.2.1}Market Timing}{117}{subsection.15.2.1}%
+\contentsline {subsection}{\numberline {15.2.2}Platform Control Risk}{117}{subsection.15.2.2}%
+\contentsline {subsection}{\numberline {15.2.3}Regulatory Risk}{118}{subsection.15.2.3}%
+\contentsline {subsection}{\numberline {15.2.4}Competition from Vertically Integrated Players}{118}{subsection.15.2.4}%
+\contentsline {subsection}{\numberline {15.2.5}Talent Acquisition and Retention}{119}{subsection.15.2.5}%
+\contentsline {subsection}{\numberline {15.2.6}Business Model Risk}{119}{subsection.15.2.6}%
+\contentsline {subsection}{\numberline {15.2.7}Commoditization by Large Tech}{120}{subsection.15.2.7}%
+\contentsline {chapter}{\numberline {16}Engineering Tradeoffs}{121}{chapter.16}%
+\contentsline {section}{\numberline {16.1}Quality vs. Speed}{121}{section.16.1}%
+\contentsline {section}{\numberline {16.2}Privacy vs. Capability}{122}{section.16.2}%
+\contentsline {section}{\numberline {16.3}Battery vs. Performance}{123}{section.16.3}%
+\contentsline {section}{\numberline {16.4}Storage vs. Model Diversity}{123}{section.16.4}%
+\contentsline {section}{\numberline {16.5}Latency vs. Quality}{124}{section.16.5}%
+\contentsline {section}{\numberline {16.6}Cost vs. Flexibility}{124}{section.16.6}%
+\contentsline {section}{\numberline {16.7}Portability vs. Performance Optimization}{125}{section.16.7}%
+\contentsline {section}{\numberline {16.8}Developer Experience vs. Control}{125}{section.16.8}%
+\contentsline {section}{\numberline {16.9}Synthesis: Navigating the Tradeoff Space}{126}{section.16.9}%
+\contentsline {chapter}{\numberline {17}Related Work}{127}{chapter.17}%
+\contentsline {section}{\numberline {17.1}Model Compression and Quantization}{127}{section.17.1}%
+\contentsline {section}{\numberline {17.2}Efficient Transformer Architectures}{127}{section.17.2}%
+\contentsline {section}{\numberline {17.3}On-Device Language Models}{128}{section.17.3}%
+\contentsline {section}{\numberline {17.4}Retrieval-Augmented Generation}{129}{section.17.4}%
+\contentsline {section}{\numberline {17.5}Edge AI Frameworks}{129}{section.17.5}%
+\contentsline {section}{\numberline {17.6}Federated Learning}{129}{section.17.6}%
+\contentsline {chapter}{\numberline {18}Technical and Business Analysis}{130}{chapter.18}%
+\contentsline {section}{\numberline {18.1}Competitive Landscape}{130}{section.18.1}%
+\contentsline {section}{\numberline {18.2}The Shared Inference Layer: SlyOS as System Infrastructure}{131}{section.18.2}%
+\contentsline {subsection}{\numberline {18.2.1}Architecture of the Shared Inference Layer}{131}{subsection.18.2.1}%
+\contentsline {subsection}{\numberline {18.2.2}Why SlyOS Wins: The Technical Argument}{132}{subsection.18.2.2}%
+\contentsline {subsection}{\numberline {18.2.3}Competitive Moat Analysis}{134}{subsection.18.2.3}%
+\contentsline {subsection}{\numberline {18.2.4}The Self-Identifying Router: When to Think Locally, When to Think Globally}{135}{subsection.18.2.4}%
+\contentsline {section}{\numberline {18.3}Technology Trajectory: The Edge AI Takeoff}{135}{section.18.3}%
+\contentsline {subsection}{\numberline {18.3.1}NPU Compute: From Zero to 100+ TOPS}{135}{subsection.18.3.1}%
+\contentsline {subsection}{\numberline {18.3.2}Flagship Device RAM: Enabling Larger Models}{136}{subsection.18.3.2}%
+\contentsline {subsection}{\numberline {18.3.3}On-Device Model Size: The Capability Frontier}{137}{subsection.18.3.3}%
+\contentsline {subsection}{\numberline {18.3.4}Edge Deflection Rate Projection}{139}{subsection.18.3.4}%
+\contentsline {section}{\numberline {18.4}Risks to the Financial Model}{139}{section.18.4}%
+\contentsline {chapter}{\numberline {19}Conclusion and Future Work}{141}{chapter.19}%
+\contentsline {section}{\numberline {19.1}Summary}{141}{section.19.1}%
+\contentsline {section}{\numberline {19.2}Limitations}{142}{section.19.2}%
+\contentsline {section}{\numberline {19.3}Future Directions}{142}{section.19.3}%
+\contentsline {subsection}{\numberline {19.3.1}Speculative Decoding}{142}{subsection.19.3.1}%
+\contentsline {subsection}{\numberline {19.3.2}Federated Fine-Tuning}{142}{subsection.19.3.2}%
+\contentsline {subsection}{\numberline {19.3.3}Dynamic Quantization Switching}{142}{subsection.19.3.3}%
+\contentsline {subsection}{\numberline {19.3.4}Context Extension}{143}{subsection.19.3.4}%
+\contentsline {subsection}{\numberline {19.3.5}Multi-Modal Edge Inference}{143}{subsection.19.3.5}%
+\contentsline {subsection}{\numberline {19.3.6}Model Marketplace}{143}{subsection.19.3.6}%
+\contentsline {subsection}{\numberline {19.3.7}Shared Inference Daemon}{143}{subsection.19.3.7}%
+\contentsline {section}{\numberline {19.4}Closing Remarks}{144}{section.19.4}%
+\contentsline {chapter}{\numberline {A}Mathematical Notation Reference}{145}{appendix.A}%
+\contentsline {chapter}{\numberline {B}API Endpoint Reference}{146}{appendix.B}%
+\contentsline {section}{\numberline {B.1}Authentication}{146}{section.B.1}%
+\contentsline {subsection}{\numberline {B.1.1}POST /api/auth/register}{146}{subsection.B.1.1}%
+\contentsline {subsection}{\numberline {B.1.2}POST /api/auth/login}{146}{subsection.B.1.2}%
+\contentsline {section}{\numberline {B.2}Device Management}{147}{section.B.2}%
+\contentsline {subsection}{\numberline {B.2.1}POST /api/devices/register}{147}{subsection.B.2.1}%
+\contentsline {section}{\numberline {B.3}Model Operations}{148}{section.B.3}%
+\contentsline {subsection}{\numberline {B.3.1}GET /api/models}{148}{subsection.B.3.1}%
+\contentsline {subsection}{\numberline {B.3.2}GET /api/models/search}{148}{subsection.B.3.2}%
+\contentsline {section}{\numberline {B.4}Knowledge Base}{148}{section.B.4}%
+\contentsline {subsection}{\numberline {B.4.1}POST /api/knowledge-base/upload}{148}{subsection.B.4.1}%
+\contentsline {subsection}{\numberline {B.4.2}POST /api/knowledge-base/search}{148}{subsection.B.4.2}%
+\contentsline {chapter}{\numberline {C}Device Compatibility Matrix}{150}{appendix.C}%

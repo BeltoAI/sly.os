@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>SlyOS | The Edge Intelligence Infrastructure by Belto</title>
+    <meta name="description" content="SlyOS by Belto Inc. is the infrastructure for deploying local AI models to edge devices. Zero latency, 100% privacy, WebGPU enabled.">
+    <meta name="keywords" content="Edge AI, On-Device LLM, SLM, Belto, SlyOS, Local Inference, SDK, WebGPU, VoiceCore, Quantum">
+    <meta name="author" content="Belto Inc.">
+    <meta name="theme-color" content="#FF4D00">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="SlyOS - Intelligence at the Edge">
+    <meta property="og:description" content="Run powerful AI models directly on user devices. The complete infrastructure by Belto Inc.">
+    <meta property="og:image" content="./newnew.png">
+    <link rel="icon" type="image/x-icon" href="./favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png">
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <style>
+        :root {
+            --bg-deep: #050505;
+            --bg-card: #0A0A0A;
+            --accent: #FF4D00;
+            --accent-dim: rgba(255, 77, 0, 0.1);
+            --text-main: #EDEDED;
+            --text-muted: #888888;
+            --border: rgba(255, 255, 255, 0.08);
+        }
+        body { background-color: var(--bg-deep); color: var(--text-main); font-family: 'Inter', sans-serif; overflow-x: hidden; -webkit-font-smoothing: antialiased; }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        .noise { position: fixed; inset: 0; pointer-events: none; z-index: 50; opacity: 0.03; background: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMjAwIj48ZmlsdGVyIGlkPSJub2lzZSI+PGZlVHVyYnVsZW5jZSB0eXBlPSJmcmFjdGFsTm9pc2UiIGJhc2VGcmVxdWVuY3k9IjAuODUiIG51bU9jdGF2ZXM9IjMiIHN0aXRjaFRpbGVzPSJzdGl0Y2giLz48L2ZpbHRlcj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWx0ZXI9InVybCgjbm9pc2UpIiBvcGFjaXR5PSIxIi8+PC9zdmc+'); }
+        .glass { background: rgba(15, 15, 15, 0.6); backdrop-filter: blur(12px); border: 1px solid var(--border); }
+        .card-hover { transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); }
+        .card-hover:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 10px 40px -10px var(--accent-dim); }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg-deep); }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+        @keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+        @keyframes pulse-blue { 0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); border-color: rgba(255,255,255,0.1); } 50% { box-shadow: 0 0 15px 0px rgba(59, 130, 246, 0.3); border-color: rgba(59, 130, 246, 0.5); } }
+        .animate-pulse-blue { animation: pulse-blue 2s infinite; }
+        @keyframes countUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes gradientShift { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+        .gradient-animate { background-size: 200% 200%; animation: gradientShift 4s ease infinite; }
+        .waitlist-glow { box-shadow: 0 0 60px -15px var(--accent), 0 0 120px -30px rgba(255, 77, 0, 0.15); }
+        .input-focus:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(255, 77, 0, 0.15); }
+        @keyframes successPop { 0% { transform: scale(0.8); opacity: 0; } 50% { transform: scale(1.05); } 100% { transform: scale(1); opacity: 1; } }
+        .success-pop { animation: successPop 0.4s ease-out forwards; }
+    </style>
+</head>
+<body class="relative selection:bg-[var(--accent)] selection:text-white">
+    <div class="noise"></div>
+
+    <!-- NAV -->
+    <nav class="fixed top-0 w-full z-40 border-b border-white/5 bg-[#050505]/80 backdrop-blur-xl">
+        <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+            <a href="#" class="flex items-center gap-3 group">
+                <img src="./SlyOS_Flame.png" alt="SlyOS Logo" class="w-6 h-6 group-hover:brightness-125 transition-all">
+                <span class="text-lg font-bold tracking-tighter uppercase text-white">SlyOS</span>
+            </a>
+            <div class="hidden md:flex items-center gap-8 text-xs font-medium text-neutral-400 uppercase tracking-wide">
+                <a href="#pipeline" class="hover:text-white transition-colors">How it works</a>
+                <a href="#builders" class="hover:text-white transition-colors">For Builders</a>
+                <a href="#models" class="hover:text-white transition-colors">Model Zoo</a>
+                <a href="#waitlist" class="hover:text-[var(--accent)] transition-colors font-bold text-[var(--accent)]">Join Waitlist</a>
+            </div>
+            <div class="flex items-center gap-4">
+                <a href="https://dashboard-khaki-iota-54.vercel.app" class="mono text-[10px] text-neutral-500 hover:text-[var(--accent)] transition-colors hidden sm:block">console.login()</a>
+                <a href="#waitlist" class="px-4 py-2 bg-white text-black font-bold text-xs rounded-full hover:bg-[var(--accent)] hover:text-white transition-all">Get Early Access</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- HERO -->
+    <header class="relative pt-40 pb-20 px-6 overflow-hidden">
+        <div class="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[500px] bg-[var(--accent)] opacity-[0.06] blur-[120px] rounded-full pointer-events-none"></div>
+        <div class="max-w-5xl mx-auto text-center relative z-10">
+            <div class="inline-flex items-center gap-2 px-3 py-1 mb-8 rounded-full border border-[var(--accent)]/30 bg-[var(--accent)]/5 text-[10px] font-mono text-[var(--accent)] uppercase tracking-wider">
+                <span class="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse"></span>
+                <span>Belto Infrastructure v1.0</span>
+            </div>
+            <h1 class="text-5xl md:text-7xl font-bold tracking-tight mb-8 leading-[0.95]">
+                Intelligence at the Edge.<br>
+                <span class="text-neutral-600">Infrastructure for Local AI.</span>
+            </h1>
+            <p class="text-lg text-neutral-400 max-w-2xl mx-auto mb-10 leading-relaxed font-light">
+                SlyOS provides the complete toolchain to deploy any Language Models (LMs) to your users' devices.
+                <span class="text-white font-medium">Zero latency. 100% Privacy. No per-token fees.</span>
+            </p>
+            <div class="flex flex-col items-center gap-4">
+                <div class="flex flex-col sm:flex-row items-center justify-center gap-4 w-full sm:w-auto">
+                    <a href="#waitlist" class="w-full sm:w-auto px-8 py-3.5 bg-[var(--accent)] text-white rounded-full font-bold text-sm hover:scale-105 transition-transform shadow-[0_0_20px_-5px_var(--accent)]">Join the Waitlist</a>
+                    <div class="flex items-center gap-3 px-6 py-3.5 rounded-full border border-white/10 bg-white/5 text-xs font-mono text-neutral-400 group cursor-pointer hover:border-white/20 transition-colors" onclick="navigator.clipboard.writeText('npm install @beltoinc/slyos-sdk')">
+                        <span>$ npm install @beltoinc/slyos-sdk</span>
+                        <i class="ph ph-copy group-hover:text-white"></i>
+                    </div>
+                </div>
+                <a href="https://zenodo.org/records/19041422" target="_blank" rel="noopener noreferrer" class="flex items-center justify-center gap-2 px-5 py-2 mt-2 rounded-full border border-white/5 bg-transparent text-[11px] font-mono text-neutral-500 hover:text-[var(--accent)] hover:border-[var(--accent)]/20 hover:bg-[var(--accent)]/5 transition-all group">
+                    <i class="ph ph-file-text"></i>
+                    <span>Read the SlyOS Architecture Paper</span>
+                    <i class="ph ph-arrow-up-right text-[10px] opacity-50 group-hover:opacity-100 transition-opacity"></i>
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- LIVE WAITLIST TICKER -->
+    <section id="counter" class="border-y border-[var(--accent)]/20 bg-gradient-to-r from-[var(--accent)]/[0.03] via-[var(--accent)]/[0.08] to-[var(--accent)]/[0.03]">
+        <div class="max-w-7xl mx-auto px-6 py-6 flex flex-col sm:flex-row items-center justify-center gap-6">
+            <div class="flex items-center gap-3">
+                <div class="w-2.5 h-2.5 rounded-full bg-[var(--accent)] animate-pulse"></div>
+                <span class="text-xs font-mono text-neutral-400 uppercase tracking-[0.2em]">Live Waitlist</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <div id="waitlist-counter" class="flex items-center gap-[2px]"></div>
+                <span class="text-sm text-neutral-500 ml-2">builders waiting for early access</span>
+            </div>
+            <a href="#waitlist" class="px-4 py-1.5 rounded-full border border-[var(--accent)]/30 bg-[var(--accent)]/10 text-[var(--accent)] text-xs font-bold hover:bg-[var(--accent)] hover:text-white transition-all">Reserve Your Spot</a>
+        </div>
+    </section>
+
+    <!-- TECH BAR -->
+    <div class="border-b border-white/5 bg-white/[0.02]">
+        <div class="max-w-7xl mx-auto px-6 py-8 flex flex-wrap justify-center gap-8 md:gap-24 opacity-70 grayscale hover:grayscale-0 transition-all duration-500">
+            <div class="flex items-center gap-3 group"><i class="ph-fill ph-globe text-2xl group-hover:text-[var(--accent)] transition-colors"></i><div class="text-left"><div class="text-xs font-bold text-white">WebGPU</div><div class="text-[10px] text-green-500 mono">● READY</div></div></div>
+            <div class="flex items-center gap-3 group"><i class="ph-fill ph-terminal-window text-2xl group-hover:text-[var(--accent)] transition-colors"></i><div class="text-left"><div class="text-xs font-bold text-white">Ollama</div><div class="text-[10px] text-green-500 mono">● READY</div></div></div>
+            <div class="flex items-center gap-3 group"><i class="ph-fill ph-apple-logo text-2xl group-hover:text-[var(--accent)] transition-colors"></i><div class="text-left"><div class="text-xs font-bold text-white">iOS</div><div class="text-[10px] text-neutral-500 mono">COMING SOON</div></div></div>
+            <div class="flex items-center gap-3 group"><i class="ph-fill ph-android-logo text-2xl group-hover:text-[var(--accent)] transition-colors"></i><div class="text-left"><div class="text-xs font-bold text-white">Android</div><div class="text-[10px] text-neutral-500 mono">COMING SOON</div></div></div>
+        </div>
+    </div>
+
+    <!-- DEMO -->
+    <section class="py-24 px-6 relative">
+        <div class="max-w-7xl mx-auto">
+            <div class="text-center mb-10">
+                <h2 class="text-3xl font-bold mb-4">See SlyOS in Action</h2>
+                <p class="text-neutral-500">Running `quantum-360m` entirely in the browser via WebGPU.</p>
+            </div>
+            <div class="relative p-2 rounded-2xl bg-gradient-to-b from-white/10 to-white/0 border border-white/10 shadow-[0_0_50px_-10px_rgba(0,0,0,0.5)]">
+                <div class="absolute inset-0 bg-[var(--accent)] opacity-[0.05] blur-2xl rounded-2xl pointer-events-none"></div>
+                <div class="bg-[#050505] rounded-t-xl border-b border-white/5 p-3 flex items-center gap-4">
+                    <div class="flex gap-2"><div class="w-3 h-3 rounded-full bg-red-500/20 border border-red-500/50"></div><div class="w-3 h-3 rounded-full bg-yellow-500/20 border border-yellow-500/50"></div><div class="w-3 h-3 rounded-full bg-green-500/20 border border-green-500/50"></div></div>
+                    <div class="flex-1 text-center"><div class="inline-block px-4 py-1 rounded bg-white/5 text-[10px] text-neutral-500 font-mono">localhost:3000/demo</div></div>
+                </div>
+                <div class="relative overflow-hidden rounded-b-xl bg-black aspect-video">
+                    <img src="./newnew.png" alt="SlyOS Demo Interface" class="w-full h-full object-cover opacity-90 hover:opacity-100 transition-opacity duration-500">
+                    <div class="absolute bottom-4 right-4 px-3 py-1 bg-black/80 backdrop-blur border border-white/10 rounded text-[10px] text-green-400 font-mono flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>Inference Active: 45ms</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- HOW IT WORKS -->
+    <section id="how-it-works" class="py-24 px-6 border-t border-white/5 bg-[#030303]">
+        <div class="max-w-7xl mx-auto">
+            <div class="mb-16">
+                <h2 class="text-4xl font-bold mb-4 uppercase tracking-tighter text-white">Zero to Edge in 60 Seconds</h2>
+                <p class="text-neutral-500 text-lg">The fastest pipeline from raw weights to on-device intelligence.</p>
+            </div>
+            <div class="grid md:grid-cols-5 gap-4 relative">
+                <div class="group p-6 border border-white/10 bg-[#0A0A0A] rounded-xl hover:border-[var(--accent)]/50 transition-all"><div class="text-[10px] font-mono text-[var(--accent)] mb-4 uppercase tracking-[0.2em]">Step_01</div><h3 class="text-sm font-bold text-white uppercase mb-2">Authenticate</h3><p class="text-xs text-neutral-500 leading-relaxed">Login to the SlyOS console and initialize your secure workspace.</p></div>
+                <div class="group p-6 border border-white/10 bg-[#0A0A0A] rounded-xl hover:border-[var(--accent)]/50 transition-all"><div class="text-[10px] font-mono text-[var(--accent)] mb-4 uppercase tracking-[0.2em]">Step_02</div><h3 class="text-sm font-bold text-white uppercase mb-2">Select Engine</h3><p class="text-xs text-neutral-500 leading-relaxed">Choose from our optimized Zoo or pull any model from Hugging Face.</p></div>
+                <div class="group p-6 border border-white/10 bg-[#0A0A0A] rounded-xl hover:border-[var(--accent)]/50 transition-all"><div class="text-[10px] font-mono text-[var(--accent)] mb-4 uppercase tracking-[0.2em]">Step_03</div><h3 class="text-sm font-bold text-white uppercase mb-2">Inject Context</h3><p class="text-xs text-neutral-500 leading-relaxed">Upload data to the RAG DB so the LM knows exactly what to talk about.</p></div>
+                <div class="group p-6 border border-white/10 bg-[#0A0A0A] rounded-xl hover:border-[var(--accent)]/50 transition-all"><div class="text-[10px] font-mono text-[var(--accent)] mb-4 uppercase tracking-[0.2em]">Step_04</div><h3 class="text-sm font-bold text-white uppercase mb-2">Configure</h3><p class="text-xs text-neutral-500 leading-relaxed">Tune quantization levels and set your hardware routing logic.</p></div>
+                <div class="group p-6 border border-blue-500/30 bg-blue-500/5 rounded-xl hover:border-blue-500/60 transition-all"><div class="text-[10px] font-mono text-blue-400 mb-4 uppercase tracking-[0.2em]">Step_05</div><h3 class="text-sm font-bold text-white uppercase mb-2">Get SDK</h3><p class="text-xs text-neutral-500 leading-relaxed">Grab your API key, drop the SDK into your app, and go live.</p></div>
+            </div>
+            <div class="mt-12 p-8 bg-black border border-white/10 rounded-xl font-mono relative overflow-hidden">
+                <div class="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-[var(--accent)]/50 to-transparent"></div>
+                <div class="flex items-center gap-2 mb-4"><div class="w-3 h-3 rounded-full bg-red-500/20"></div><div class="w-3 h-3 rounded-full bg-yellow-500/20"></div><div class="w-3 h-3 rounded-full bg-green-500/20"></div><span class="text-[10px] text-neutral-600 ml-4 uppercase tracking-widest">terminal // deploy_v1.js</span></div>
+                <pre class="text-sm text-blue-400">
+<span class="text-neutral-500">// 1. Initialize the edge agent</span>
+<span class="text-white">const</span> agent = <span class="text-white">await</span> SlyOS.init(<span class="text-green-400">"quantum-360m"</span>);
+<span class="text-neutral-500">// 2. Sync your RAG context</span>
+<span class="text-white">await</span> agent.sync(<span class="text-green-400">"https://slyos.db/your-project-id"</span>);
+<span class="text-neutral-500">// 3. Query with zero latency</span>
+<span class="text-white">const</span> result = <span class="text-white">await</span> agent.ask(<span class="text-green-400">"Initialize diagnostic run."</span>);
+                </pre>
+            </div>
+        </div>
+    </section>
+
+    <!-- WHY EDGE -->
+    <section id="why-edge" class="py-24 px-6 border-t border-white/5 bg-[#030303]">
+        <div class="max-w-7xl mx-auto">
+            <div class="mb-16"><h2 class="text-4xl font-bold mb-4 uppercase tracking-tighter text-white">Why Move to the Edge?</h2><p class="text-neutral-500 text-lg">Shift from "Margin Destruction" to sustainable scaling.</p></div>
+            <div class="grid md:grid-cols-3 gap-12">
+                <div class="space-y-4"><div class="w-10 h-10 rounded bg-[var(--accent)]/10 flex items-center justify-center border border-[var(--accent)]/20"><i class="ph-bold ph-chart-line-up text-[var(--accent)]"></i></div><h3 class="text-xl font-bold uppercase tracking-tight text-white">Controllable Unit Economics</h3><p class="text-sm text-neutral-400 leading-relaxed">Stop the variable "Cloud Burn." Replace unpredictable $1.50/user variable costs with a fixed $0.15/device fee. By moving inference to the edge, you slash infrastructure bills by up to 90%.</p></div>
+                <div class="space-y-4"><div class="w-10 h-10 rounded bg-green-500/10 flex items-center justify-center border border-green-500/20"><i class="ph-bold ph-test-tube text-green-500"></i></div><h3 class="text-xl font-bold uppercase tracking-tight text-white">No Testing Punishment</h3><p class="text-sm text-neutral-400 leading-relaxed">Scaling your testing shouldn't break your bank. Because edge pricing is fixed per device, your gross margins remain at a healthy 93.3% to 94.4% regardless of how many tokens your users generate.</p></div>
+                <div class="space-y-4"><div class="w-10 h-10 rounded bg-blue-500/10 flex items-center justify-center border border-blue-500/20"><i class="ph-bold ph-arrows-split text-blue-500"></i></div><h3 class="text-xl font-bold uppercase tracking-tight text-white">Intelligent Hybrid RAG</h3><p class="text-sm text-neutral-400 leading-relaxed">Route to cloud only when it makes sense. Keep 90% of interactions local for privacy and speed, while utilizing cloud-based Vector DBs only for complex retrievals.</p></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FOR BUILDERS -->
+    <section id="builders" class="py-24 px-6 bg-[#050505] border-t border-white/5 relative overflow-hidden">
+        <div class="max-w-7xl mx-auto relative z-10">
+            <div class="flex flex-col lg:flex-row items-center gap-16">
+                <div class="flex-1">
+                    <div class="inline-flex items-center gap-2 px-3 py-1 mb-6 rounded-full bg-purple-500/10 text-[10px] font-mono text-purple-400 uppercase tracking-wider">For Consumer Apps</div>
+                    <h2 class="text-3xl md:text-5xl font-bold mb-6">Building a Chatbot? <br>Stop paying per token.</h2>
+                    <p class="text-lg text-neutral-400 mb-8 leading-relaxed">If you are building a consumer app with a chatbot, Cloud API costs scale linearly with your success. With SlyOS, your costs are flat, no matter how much your users chat.</p>
+                    <div class="flex flex-col gap-4">
+                        <div class="flex items-start gap-4"><div class="w-8 h-8 rounded bg-white/5 flex items-center justify-center shrink-0"><i class="ph-fill ph-infinite text-white"></i></div><div><h4 class="text-white font-bold text-sm">Unlimited Inference</h4><p class="text-xs text-neutral-500 mt-1">Users can chat for hours without costing you a dime in server bills.</p></div></div>
+                        <div class="flex items-start gap-4"><div class="w-8 h-8 rounded bg-white/5 flex items-center justify-center shrink-0"><i class="ph-fill ph-rocket-launch text-[var(--accent)]"></i></div><div><h4 class="text-white font-bold text-sm">Deploy in Seconds</h4><p class="text-xs text-neutral-500 mt-1">Build a chatbot locally with one copy and paste terminal command.</p></div></div>
+                    </div>
+                </div>
+                <div class="flex-1 w-full">
+                    <div class="glass rounded-xl border border-white/10 p-1 relative overflow-hidden shadow-2xl">
+                        <div class="bg-[#1e1e1e] rounded-lg p-6 font-mono text-sm overflow-x-auto">
+                            <div class="flex gap-2 mb-4"><div class="w-3 h-3 rounded-full bg-red-500"></div><div class="w-3 h-3 rounded-full bg-yellow-500"></div><div class="w-3 h-3 rounded-full bg-green-500"></div></div>
+                            <div class="text-neutral-400 mb-2"># Install the chat starter kit</div>
+                            <div class="flex items-center gap-2 text-white"><span class="text-green-500">&rarr;</span><span>npx @beltoinc/create-local-chat</span></div>
+                            <div class="text-neutral-500 mt-4 text-xs">&gt; Cloning template...<br>&gt; Installing dependencies...<br>&gt; Downloading Quantum-360M...<br><span class="text-green-500">&gt; Ready on localhost:3000</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- NEXT GEN -->
+    <section id="next-gen" class="py-24 px-6 border-t border-white/5 bg-[#030303]">
+        <div class="max-w-7xl mx-auto">
+            <div class="mb-16"><h2 class="text-4xl font-bold mb-4 uppercase tracking-tighter text-white">Built for the next generation of apps.</h2><p class="text-neutral-400 text-lg max-w-3xl">When latency is zero and privacy is absolute, new product categories emerge.</p></div>
+            <div class="grid lg:grid-cols-2 gap-16 items-center">
+                <div class="space-y-12">
+                    <div class="border-l-2 border-white/10 pl-8 relative"><div class="text-[10px] font-mono text-blue-500 uppercase tracking-widest mb-2">Cluster_01</div><h3 class="text-2xl font-bold text-white uppercase tracking-tight mb-4">Productivity Giants</h3><div class="grid grid-cols-2 gap-8"><div><div class="text-[10px] text-neutral-500 uppercase mb-1">Customer Pain</div><div class="text-sm text-white">Profit eaten by <span class="text-blue-400">Cloud Taxes</span></div></div><div><div class="text-[10px] text-neutral-500 uppercase mb-1">User Pain</div><div class="text-sm text-white">UX killed by <span class="text-blue-400">Latency</span></div></div></div></div>
+                    <div class="border-l-2 border-white/10 pl-8 relative"><div class="text-[10px] font-mono text-blue-500 uppercase tracking-widest mb-2">Cluster_02</div><h3 class="text-2xl font-bold text-white uppercase tracking-tight mb-4">Model Architects</h3><div class="grid grid-cols-2 gap-8"><div><div class="text-[10px] text-neutral-500 uppercase mb-1">Customer Pain</div><div class="text-sm text-white">Extreme <span class="text-blue-400">Infra Overhead</span></div></div><div><div class="text-[10px] text-neutral-500 uppercase mb-1">User Pain</div><div class="text-sm text-white">Stalling at <span class="text-blue-400">Prompt Limits</span></div></div></div></div>
+                </div>
+                <div class="relative flex flex-col items-center">
+                    <div class="text-[10px] font-mono text-neutral-500 uppercase tracking-[0.3em] mb-8">Hardware Dominance</div>
+                    <div class="w-full max-w-md space-y-2">
+                        <div class="mx-auto w-0 h-0 border-l-[60px] border-l-transparent border-r-[60px] border-r-transparent border-bottom-[100px] border-b-blue-600 flex items-end justify-center pb-2"><span class="text-[10px] font-bold text-white uppercase tracking-widest">Everywhere</span></div>
+                        <div class="w-3/4 mx-auto py-4 border border-white/20 bg-white/5 flex items-center justify-center"><span class="text-[10px] font-mono text-white uppercase tracking-widest">Smartglasses</span></div>
+                        <div class="w-full py-6 border border-white/20 bg-white/5 flex items-center justify-center"><span class="text-[10px] font-mono text-white uppercase tracking-widest">Cars / Play Consoles</span></div>
+                        <div class="w-[115%] -mx-[7.5%] py-8 border border-blue-500/50 bg-blue-500/10 flex items-center justify-center"><span class="text-[10px] font-mono text-blue-400 uppercase tracking-widest font-bold">Phones / Web / Laptops</span></div>
+                    </div>
+                    <div class="mt-8 text-[10px] font-mono text-blue-500/50 uppercase tracking-widest">Strategic_Alignment // Phase: 01-04</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- MODEL ZOO -->
+    <section id="model-zoo" class="py-24 px-6 border-t border-white/5 bg-[#030303]">
+        <div class="max-w-7xl mx-auto">
+            <div class="flex flex-col md:flex-row justify-between items-end mb-16 gap-6">
+                <div><h2 class="text-4xl font-bold mb-4 uppercase tracking-tighter text-white">Model Zoo</h2><p class="text-neutral-500 text-lg">Optimized weights for instant edge deployment.</p></div>
+                <div class="flex gap-4">
+                    <div class="px-4 py-2 rounded border border-white/10 bg-white/5 text-[10px] font-mono text-white uppercase tracking-widest flex items-center gap-2"><i class="ph-bold ph-upload-simple"></i> Upload Custom Weights</div>
+                    <div class="px-4 py-2 rounded border border-yellow-500/30 bg-yellow-500/5 text-[10px] font-mono text-yellow-500 uppercase tracking-widest flex items-center gap-2"><i class="ph-fill ph-smiley"></i> Import from Hugging Face</div>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div class="group border border-white/10 bg-[#0A0A0A] p-6 rounded-xl hover:border-[var(--accent)]/50 transition-all">
+                    <div class="flex justify-between items-start mb-6"><div class="p-3 rounded-lg bg-[var(--accent)]/10 text-[var(--accent)]"><i class="ph-fill ph-cpu text-2xl"></i></div><span class="text-[10px] font-mono text-green-500 bg-green-500/10 px-2 py-1 rounded">READY</span></div>
+                    <h3 class="text-xl font-bold text-white mb-2 tracking-tight">quantum-code-3b</h3>
+                    <p class="text-sm text-neutral-500 mb-6">Ultra-lightweight reasoning engine optimized for mobile NPU architectures.</p>
+                    <div class="space-y-2 border-t border-white/5 pt-4"><div class="flex justify-between text-[10px] font-mono"><span class="text-neutral-500">RAM USAGE</span><span class="text-white">4GB</span></div><div class="flex justify-between text-[10px] font-mono"><span class="text-neutral-500">LATENCY</span><span class="text-white">~12ms</span></div></div>
+                </div>
+                <div class="group border border-dashed border-white/20 bg-transparent p-6 rounded-xl hover:bg-white/[0.02] transition-all cursor-pointer flex flex-col items-center justify-center text-center"><div class="p-4 rounded-full bg-white/5 mb-4 group-hover:scale-110 transition-transform"><i class="ph-bold ph-plus text-3xl text-neutral-500 group-hover:text-white"></i></div><h3 class="text-lg font-bold text-white uppercase tracking-tighter">Bring Your Own Model</h3><p class="text-xs text-neutral-500 mt-2">Drop your .onnx, .tflite, or .gguf files here to quantize for the edge.</p></div>
+                <div class="group border border-yellow-500/20 bg-yellow-500/[0.02] p-6 rounded-xl hover:border-yellow-500/50 transition-all">
+                    <div class="flex items-center gap-3 mb-6"><i class="ph-fill ph-smiley text-3xl text-yellow-500"></i><span class="text-[10px] font-mono text-yellow-500 uppercase tracking-widest">Hugging Face Bridge</span></div>
+                    <h3 class="text-xl font-bold text-white mb-2 tracking-tight">Direct HF Import</h3>
+                    <p class="text-sm text-neutral-500 mb-6">Paste any repository URL. We'll handle the sharding, pruning, and deployment routing.</p>
+                    <div class="relative"><input type="text" placeholder="hf.co/models/..." class="w-full bg-black border border-white/10 rounded px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-yellow-500/50"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FLEET OBSERVABILITY -->
+    <section class="py-24 px-6 bg-[#080808] border-t border-white/5">
+        <div class="max-w-7xl mx-auto">
+            <div class="mb-12 flex flex-col md:flex-row justify-between items-end gap-6">
+                <div><h2 class="text-3xl font-bold mb-4">Complete Fleet Observability</h2><p class="text-neutral-500 max-w-xl">Track latency, memory pressure, and model performance across every device in your fleet. Real-time telemetry without seeing user data.</p></div>
+                <div class="flex gap-4"><div class="px-4 py-2 rounded bg-white/5 border border-white/10 text-xs font-mono text-neutral-400"><span class="text-green-500">&bull;</span> 14,203 Active Devices</div><div class="px-4 py-2 rounded bg-white/5 border border-white/10 text-xs font-mono text-neutral-400"><span class="text-[var(--accent)]">~</span> 42ms Avg Latency</div></div>
+            </div>
+            <div class="glass rounded-xl overflow-hidden border border-white/10 shadow-2xl relative">
+                <div class="h-1 w-full bg-gradient-to-r from-[var(--accent)] via-purple-500 to-blue-500 opacity-50"></div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-white/5 text-[10px] uppercase text-neutral-400 font-bold tracking-wider"><tr><th class="px-6 py-4">Device UUID</th><th class="px-6 py-4">Environment</th><th class="px-6 py-4">Model Loaded</th><th class="px-6 py-4">VRAM Usage</th><th class="px-6 py-4">Inference Speed</th><th class="px-6 py-4">Status</th></tr></thead>
+                        <tbody class="divide-y divide-white/5 text-neutral-300 font-mono text-xs">
+                            <tr class="hover:bg-white/[0.02] transition-colors group"><td class="px-6 py-4 text-white group-hover:text-[var(--accent)]">dev-8a92-f3...</td><td class="px-6 py-4 flex items-center gap-2"><i class="ph-fill ph-globe text-blue-400"></i> Chrome / WebGPU</td><td class="px-6 py-4">quantum-360m</td><td class="px-6 py-4 text-neutral-500">412MB / 8GB</td><td class="px-6 py-4 text-green-400">52 t/s</td><td class="px-6 py-4"><span class="px-2 py-0.5 rounded bg-green-500/10 text-green-500 border border-green-500/20">ONLINE</span></td></tr>
+                            <tr class="hover:bg-white/[0.02] transition-colors group"><td class="px-6 py-4 text-white group-hover:text-[var(--accent)]">dev-b211-a9...</td><td class="px-6 py-4 flex items-center gap-2"><i class="ph-fill ph-apple-logo text-white"></i> iOS 17.2</td><td class="px-6 py-4">voicecore-base</td><td class="px-6 py-4 text-neutral-500">256MB / 6GB</td><td class="px-6 py-4 text-green-400">0.3x RT</td><td class="px-6 py-4"><span class="px-2 py-0.5 rounded bg-green-500/10 text-green-500 border border-green-500/20">ONLINE</span></td></tr>
+                            <tr class="hover:bg-white/[0.02] transition-colors group"><td class="px-6 py-4 text-white group-hover:text-[var(--accent)]">dev-c440-e1...</td><td class="px-6 py-4 flex items-center gap-2"><i class="ph-fill ph-android-logo text-green-400"></i> Android 14</td><td class="px-6 py-4">quantum-135m</td><td class="px-6 py-4 text-neutral-500">180MB / 12GB</td><td class="px-6 py-4 text-yellow-400">18 t/s</td><td class="px-6 py-4"><span class="px-2 py-0.5 rounded bg-yellow-500/10 text-yellow-500 border border-yellow-500/20">IDLE</span></td></tr>
+                            <tr class="hover:bg-white/[0.02] transition-colors group"><td class="px-6 py-4 text-white group-hover:text-[var(--accent)]">dev-f999-z0...</td><td class="px-6 py-4 flex items-center gap-2"><i class="ph-fill ph-desktop text-purple-400"></i> Mac / Metal</td><td class="px-6 py-4">quantum-8b</td><td class="px-6 py-4 text-neutral-500">5.2GB / 32GB</td><td class="px-6 py-4 text-green-400">88 t/s</td><td class="px-6 py-4"><span class="px-2 py-0.5 rounded bg-green-500/10 text-green-500 border border-green-500/20">ONLINE</span></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- DUAL ARCHITECTURE -->
+    <section class="py-32 px-6 bg-[#030303] relative overflow-hidden">
+        <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[400px] bg-blue-500/10 blur-[150px] rounded-full pointer-events-none mix-blend-screen"></div>
+        <div class="max-w-7xl mx-auto relative z-10">
+            <div class="text-center mb-20"><h2 class="text-4xl md:text-5xl font-bold mb-6">Dual Deployment Architectures</h2><p class="text-xl text-neutral-500 max-w-3xl mx-auto">SlyOS isn't just for phones. It's an infrastructure layer that adapts to the available compute environment.</p></div>
+            <div class="grid lg:grid-cols-2 gap-12">
+                <div class="glass p-10 rounded-3xl border border-white/10 relative overflow-hidden group">
+                    <div class="absolute inset-0 bg-gradient-to-br from-[var(--accent)]/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                    <div class="relative z-10 mb-8">
+                        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[var(--accent)]/10 text-[var(--accent)] text-xs font-bold uppercase tracking-wider mb-4">Architecture A</div>
+                        <h3 class="text-3xl font-bold mb-4">Direct Edge Inference</h3>
+                        <p class="text-neutral-400 leading-relaxed">The standard SlyOS flow. A user's single device downloads an optimized SLM (e.g., 360M params) and runs it completely independently.</p>
+                        <ul class="mt-6 space-y-2 text-sm font-mono text-neutral-500"><li><span class="text-[var(--accent)]">&gt;</span> Ultra-low latency</li><li><span class="text-[var(--accent)]">&gt;</span> Works offline</li><li><span class="text-[var(--accent)]">&gt;</span> 100% Privacy</li></ul>
+                    </div>
+                    <div class="relative h-40 bg-[#0a0a0a] rounded-2xl border border-white/10 flex items-center justify-around px-12 overflow-hidden">
+                        <div class="relative z-10 flex flex-col items-center"><div class="w-16 h-16 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center shadow-[0_0_30px_-10px_var(--accent)]"><i class="ph-fill ph-brain text-3xl text-[var(--accent)]"></i></div><div class="text-xs mt-2 font-mono text-neutral-500">SLM (Cached)</div></div>
+                        <div class="flex-1 h-[2px] bg-white/10 relative mx-8"><div class="absolute top-1/2 -translate-y-1/2 left-0 w-1/2 h-[4px] bg-[var(--accent)] blur-[4px] animate-pulse"></div></div>
+                        <div class="relative z-10 flex flex-col items-center"><div class="w-16 h-16 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center"><i class="ph-fill ph-device-mobile text-3xl text-white"></i></div><div class="text-xs mt-2 font-mono text-neutral-500">User Device</div></div>
+                    </div>
+                </div>
+                <div class="glass p-10 rounded-3xl border border-blue-500/20 relative overflow-hidden group">
+                    <div class="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                    <div class="relative z-10 mb-8">
+                        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 text-blue-400 text-xs font-bold uppercase tracking-wider mb-4">Architecture B</div>
+                        <h3 class="text-3xl font-bold mb-4">Ad-Hoc Local Grid</h3>
+                        <p class="text-neutral-400 leading-relaxed">Leverage idle office compute. For latency-independent tasks, SlyOS splits a large model (e.g., 8B) across available workstations over the local 1GbE LAN.</p>
+                        <ul class="mt-6 space-y-2 text-sm font-mono text-neutral-500"><li><span class="text-blue-400">&gt;</span> Utilized idle VRAM/CPU</li><li><span class="text-blue-400">&gt;</span> Runs larger models</li><li><span class="text-blue-400">&gt;</span> Data stays on LAN</li></ul>
+                    </div>
+                    <div class="relative h-[300px] bg-[#0a0a0a] rounded-2xl border border-white/10 overflow-hidden p-6">
+                        <svg class="absolute inset-0 w-full h-full pointer-events-none" xmlns="http://www.w3.org/2000/svg">
+                            <defs><filter id="glow-blue"><feGaussianBlur stdDeviation="3" result="coloredBlur"/><feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+                            <path id="p1" d="M 60 150 C 120 50, 180 50, 240 50" fill="none" stroke="rgba(59,130,246,0.2)" stroke-width="2" stroke-dasharray="5 5"/><path id="p1r" d="M 320 50 C 380 50, 440 150, 500 150" fill="none" stroke="rgba(59,130,246,0.2)" stroke-width="2" stroke-dasharray="5 5"/>
+                            <path id="p2" d="M 60 150 L 240 150" fill="none" stroke="rgba(59,130,246,0.2)" stroke-width="2" stroke-dasharray="5 5"/><path id="p2r" d="M 320 150 L 500 150" fill="none" stroke="rgba(59,130,246,0.2)" stroke-width="2" stroke-dasharray="5 5"/>
+                            <path id="p3" d="M 60 150 C 120 250, 180 250, 240 250" fill="none" stroke="rgba(59,130,246,0.2)" stroke-width="2" stroke-dasharray="5 5"/><path id="p3r" d="M 320 250 C 380 250, 440 150, 500 150" fill="none" stroke="rgba(59,130,246,0.2)" stroke-width="2" stroke-dasharray="5 5"/>
+                            <circle r="4" fill="#60a5fa" filter="url(#glow-blue)"><animateMotion dur="3s" repeatCount="indefinite"><mpath href="#p1"/></animateMotion></circle>
+                            <circle r="4" fill="#60a5fa" filter="url(#glow-blue)"><animateMotion dur="3s" begin="0.2s" repeatCount="indefinite"><mpath href="#p2"/></animateMotion></circle>
+                            <circle r="4" fill="#60a5fa" filter="url(#glow-blue)"><animateMotion dur="3s" begin="0.4s" repeatCount="indefinite"><mpath href="#p3"/></animateMotion></circle>
+                            <circle r="3" fill="#fff" opacity="0.7"><animateMotion dur="3s" begin="1.5s" repeatCount="indefinite"><mpath href="#p1r"/></animateMotion></circle>
+                            <circle r="3" fill="#fff" opacity="0.7"><animateMotion dur="3s" begin="1.7s" repeatCount="indefinite"><mpath href="#p2r"/></animateMotion></circle>
+                            <circle r="3" fill="#fff" opacity="0.7"><animateMotion dur="3s" begin="1.9s" repeatCount="indefinite"><mpath href="#p3r"/></animateMotion></circle>
+                        </svg>
+                        <div class="absolute inset-0 flex items-center justify-between px-4">
+                            <div class="flex flex-col items-center z-20"><div class="w-16 h-16 rounded-xl bg-blue-500/10 border border-blue-400/30 flex items-center justify-center shadow-[0_0_30px_-5px_rgba(59,130,246,0.5)]"><i class="ph-fill ph-brain text-3xl text-blue-400"></i></div><div class="text-[10px] mt-2 font-mono text-blue-300">Large Model (70B)</div><div class="text-[9px] text-neutral-500">Sharded source</div></div>
+                            <div class="flex flex-col gap-12 z-20 py-4">
+                                <div class="flex items-center gap-2"><div class="w-12 h-12 rounded-lg bg-[#151515] border border-white/10 flex items-center justify-center relative animate-pulse-blue"><i class="ph-fill ph-desktop-tower text-xl text-neutral-400"></i><div class="absolute top-0 right-0 w-2 h-2 bg-blue-500 rounded-full"></div></div><div class="text-[9px] font-mono text-neutral-500 hidden sm:block">Idle Station A<br><span class="text-blue-400">Shard 1</span></div></div>
+                                <div class="flex items-center gap-2"><div class="w-12 h-12 rounded-lg bg-[#151515] border border-white/10 flex items-center justify-center relative animate-pulse-blue" style="animation-delay:0.2s"><i class="ph-fill ph-desktop-tower text-xl text-neutral-400"></i><div class="absolute top-0 right-0 w-2 h-2 bg-blue-500 rounded-full"></div></div><div class="text-[9px] font-mono text-neutral-500 hidden sm:block">Idle Station B<br><span class="text-blue-400">Shard 2</span></div></div>
+                                <div class="flex items-center gap-2"><div class="w-12 h-12 rounded-lg bg-[#151515] border border-white/10 flex items-center justify-center relative animate-pulse-blue" style="animation-delay:0.4s"><i class="ph-fill ph-desktop-tower text-xl text-neutral-400"></i><div class="absolute top-0 right-0 w-2 h-2 bg-blue-500 rounded-full"></div></div><div class="text-[9px] font-mono text-neutral-500 hidden sm:block">Idle Station C<br><span class="text-blue-400">Shard 3</span></div></div>
+                            </div>
+                            <div class="flex flex-col items-center z-20"><div class="w-16 h-16 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center"><i class="ph-fill ph-tray text-3xl text-white"></i></div><div class="text-[10px] mt-2 font-mono text-white">Job Result</div><div class="text-[9px] text-neutral-500">Recombined output</div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- WAITLIST SIGNUP -->
+    <section id="waitlist" class="py-32 px-6 border-t border-[var(--accent)]/20 bg-[#050505] relative overflow-hidden">
+        <div class="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[600px] bg-[var(--accent)] opacity-[0.04] blur-[150px] rounded-full pointer-events-none"></div>
+        <div class="max-w-4xl mx-auto relative z-10">
+            <div class="text-center mb-16">
+                <div class="inline-flex items-center gap-2 px-4 py-1.5 mb-8 rounded-full border border-[var(--accent)]/30 bg-[var(--accent)]/5 text-[11px] font-mono text-[var(--accent)] uppercase tracking-wider"><span class="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse"></span>Early Access Program</div>
+                <h2 class="text-4xl md:text-6xl font-bold tracking-tight mb-6 leading-[0.95]">Be First to Ship<br><span class="bg-gradient-to-r from-[var(--accent)] to-orange-400 bg-clip-text text-transparent gradient-animate">On-Device AI.</span></h2>
+                <p class="text-lg text-neutral-400 max-w-2xl mx-auto leading-relaxed">Join the waitlist and get early access to the SlyOS SDK, priority onboarding, and a direct line to our engineering team.</p>
+            </div>
+            <div class="flex justify-center mb-12">
+                <div class="inline-flex items-center gap-6 px-8 py-5 rounded-2xl border border-white/10 bg-white/[0.03] waitlist-glow">
+                    <div class="text-center"><div id="waitlist-counter-large" class="text-5xl md:text-6xl font-bold text-white tracking-tighter mono"></div><div class="text-[10px] font-mono text-neutral-500 uppercase tracking-[0.3em] mt-2">Builders on the Waitlist</div></div>
+                    <div class="hidden sm:block w-px h-16 bg-white/10"></div>
+                    <div class="hidden sm:flex flex-col gap-2">
+                        <div class="flex items-center gap-2 text-xs text-neutral-400"><i class="ph-fill ph-check-circle text-green-500"></i><span>Priority SDK access</span></div>
+                        <div class="flex items-center gap-2 text-xs text-neutral-400"><i class="ph-fill ph-check-circle text-green-500"></i><span>Design partner program</span></div>
+                        <div class="flex items-center gap-2 text-xs text-neutral-400"><i class="ph-fill ph-check-circle text-green-500"></i><span>Direct engineering support</span></div>
+                    </div>
+                </div>
+            </div>
+            <div class="max-w-xl mx-auto">
+                <form id="waitlist-form" class="space-y-4">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div><label for="wl-fn" class="block text-[10px] font-mono text-neutral-500 uppercase tracking-widest mb-2">First Name</label><input type="text" id="wl-fn" required placeholder="Emil" class="input-focus w-full bg-[#0A0A0A] border border-white/10 rounded-lg px-4 py-3 text-sm text-white placeholder-neutral-600 font-mono transition-all"></div>
+                        <div><label for="wl-ln" class="block text-[10px] font-mono text-neutral-500 uppercase tracking-widest mb-2">Last Name</label><input type="text" id="wl-ln" required placeholder="S." class="input-focus w-full bg-[#0A0A0A] border border-white/10 rounded-lg px-4 py-3 text-sm text-white placeholder-neutral-600 font-mono transition-all"></div>
+                    </div>
+                    <div><label for="wl-em" class="block text-[10px] font-mono text-neutral-500 uppercase tracking-widest mb-2">Work Email</label><input type="email" id="wl-em" required placeholder="you@company.com" class="input-focus w-full bg-[#0A0A0A] border border-white/10 rounded-lg px-4 py-3 text-sm text-white placeholder-neutral-600 font-mono transition-all"></div>
+                    <div><label for="wl-co" class="block text-[10px] font-mono text-neutral-500 uppercase tracking-widest mb-2">Company <span class="text-neutral-700">(optional)</span></label><input type="text" id="wl-co" placeholder="Acme Inc." class="input-focus w-full bg-[#0A0A0A] border border-white/10 rounded-lg px-4 py-3 text-sm text-white placeholder-neutral-600 font-mono transition-all"></div>
+                    <div><label for="wl-uc" class="block text-[10px] font-mono text-neutral-500 uppercase tracking-widest mb-2">What are you building? <span class="text-neutral-700">(optional)</span></label>
+                        <select id="wl-uc" class="input-focus w-full bg-[#0A0A0A] border border-white/10 rounded-lg px-4 py-3 text-sm text-white font-mono transition-all appearance-none cursor-pointer">
+                            <option value="" class="bg-[#0A0A0A]">Select a use case...</option><option value="chatbot" class="bg-[#0A0A0A]">Consumer chatbot / assistant</option><option value="productivity" class="bg-[#0A0A0A]">Productivity / SaaS tool</option><option value="voice" class="bg-[#0A0A0A]">Voice / transcription app</option><option value="code" class="bg-[#0A0A0A]">Code assistant / dev tool</option><option value="enterprise" class="bg-[#0A0A0A]">Enterprise / internal tool</option><option value="other" class="bg-[#0A0A0A]">Something else</option>
+                        </select>
+                    </div>
+                    <div id="wl-error" class="hidden text-red-400 text-sm font-mono text-center py-2"></div>
+                    <button type="submit" id="wl-btn" class="w-full py-4 bg-[var(--accent)] text-white rounded-lg font-bold text-sm uppercase tracking-widest hover:scale-[1.02] active:scale-[0.98] transition-all shadow-[0_0_30px_-5px_var(--accent)] flex items-center justify-center gap-3">
+                        <span id="wl-btn-text">Join the Waitlist</span>
+                        <div id="wl-spinner" class="hidden w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                    </button>
+                </form>
+                <div id="wl-success" class="hidden text-center py-12">
+                    <div class="success-pop">
+                        <div class="w-20 h-20 rounded-full bg-green-500/10 border border-green-500/30 flex items-center justify-center mx-auto mb-6"><i class="ph-fill ph-check-circle text-5xl text-green-500"></i></div>
+                        <h3 class="text-2xl font-bold text-white mb-3">You're on the list.</h3>
+                        <p class="text-neutral-400 mb-2">Check your inbox for a confirmation from <span class="text-white font-mono text-sm">support@belto.world</span></p>
+                        <p class="text-neutral-500 text-sm">Didn't get it? Check spam or <button onclick="resendEmail()" class="text-[var(--accent)] hover:underline">resend</button>.</p>
+                        <div class="mt-8 inline-flex items-center gap-2 px-4 py-2 rounded-full border border-white/10 bg-white/5 text-xs font-mono text-neutral-400"><span>Your position:</span><span id="wl-pos" class="text-white font-bold">#---</span></div>
+                    </div>
+                </div>
+                <p class="text-center text-[10px] text-neutral-600 mt-6 font-mono">By joining, you agree to our <button onclick="openModal('terms')" class="text-neutral-400 hover:text-white underline">Terms</button> and <button onclick="openModal('privacy')" class="text-neutral-400 hover:text-white underline">Privacy Policy</button>.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQ -->
+    <section class="py-24 px-6 bg-[#030303] border-t border-white/5">
+        <div class="max-w-4xl mx-auto">
+            <h2 class="text-3xl font-bold mb-12 text-center">Technical FAQ</h2>
+            <div class="space-y-4">
+                <div class="border border-white/5 rounded-xl bg-white/[0.02] overflow-hidden group"><button class="w-full text-left px-6 py-4 flex justify-between items-center focus:outline-none" onclick="this.parentElement.classList.toggle('open')"><span class="font-bold text-neutral-200">Do users need to download the model every time?</span><i class="ph-bold ph-caret-down text-neutral-500 group-hover:text-white transition-colors"></i></button><div class="px-6 pb-6 text-sm text-neutral-500 leading-relaxed">No. SlyOS uses the Cache API and IndexedDB to store model weights persistently on the device. The download (~200MB for base models) happens only once.</div></div>
+                <div class="border border-white/5 rounded-xl bg-white/[0.02] overflow-hidden group"><button class="w-full text-left px-6 py-4 flex justify-between items-center focus:outline-none" onclick="this.parentElement.classList.toggle('open')"><span class="font-bold text-neutral-200">What happens on older devices?</span><i class="ph-bold ph-caret-down text-neutral-500 group-hover:text-white transition-colors"></i></button><div class="px-6 pb-6 text-sm text-neutral-500 leading-relaxed">The SDK runs a hardware check <code>SlyOS.checkCompatibility()</code> before initializing. If the device lacks WebGPU or sufficient RAM, you can configure a fallback to our cloud API.</div></div>
+                <div class="border border-white/5 rounded-xl bg-white/[0.02] overflow-hidden group"><button class="w-full text-left px-6 py-4 flex justify-between items-center focus:outline-none" onclick="this.parentElement.classList.toggle('open')"><span class="font-bold text-neutral-200">Does this drain the user's battery?</span><i class="ph-bold ph-caret-down text-neutral-500 group-hover:text-white transition-colors"></i></button><div class="px-6 pb-6 text-sm text-neutral-500 leading-relaxed">Inference is energy-intensive, but we use optimized WebGPU shaders significantly more efficient than CPU inference. For short tasks the impact is negligible.</div></div>
+                <div class="border border-white/5 rounded-xl bg-white/[0.02] overflow-hidden group"><button class="w-full text-left px-6 py-4 flex justify-between items-center focus:outline-none" onclick="this.parentElement.classList.toggle('open')"><span class="font-bold text-neutral-200">Are the models uncensored?</span><i class="ph-bold ph-caret-down text-neutral-500 group-hover:text-white transition-colors"></i></button><div class="px-6 pb-6 text-sm text-neutral-500 leading-relaxed">Models retain their original alignment. We offer "Quantum-Code" variants fine-tuned for strict instruction following with reduced refusal rates for developer use cases.</div></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="border-t border-white/5 bg-black py-16 px-6">
+        <div class="max-w-7xl mx-auto flex flex-col md:flex-row justify-between gap-12">
+            <div><div class="flex items-center gap-3 mb-6"><img src="./SlyOS_Flame.png" alt="Logo" class="w-8 h-8 opacity-80"><span class="font-bold tracking-tight text-white text-xl">SlyOS</span></div><p class="text-sm text-neutral-500 max-w-xs mb-8">Built by Belto Inc.<br>San Francisco, CA<br><a href="mailto:support@belto.world" class="text-[var(--accent)] hover:underline">support@belto.world</a></p><div class="text-[10px] text-neutral-700 font-mono">&copy; 2026 Belto Inc. All rights reserved.</div></div>
+            <div class="flex gap-16">
+                <div><h4 class="text-white font-bold mb-4">Product</h4><ul class="space-y-2 text-sm text-neutral-500"><li><a href="#pipeline" class="hover:text-white">Integration</a></li><li><a href="#models" class="hover:text-white">Model Zoo</a></li><li><a href="#value-prop" class="hover:text-white">Security</a></li></ul></div>
+                <div><h4 class="text-white font-bold mb-4">Legal</h4><ul class="space-y-2 text-sm text-neutral-500"><li><button onclick="openModal('privacy')" class="hover:text-white text-left">Privacy Policy</button></li><li><button onclick="openModal('terms')" class="hover:text-white text-left">Terms of Service</button></li></ul></div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- MODALS -->
+    <div id="modal-backdrop" class="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md hidden items-center justify-center p-4 opacity-0 transition-opacity duration-300" onclick="closeAllModals()">
+        <div id="modal-privacy" class="modal-content bg-[#0a0a0a] border border-white/10 w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-xl p-8 hidden relative shadow-2xl" onclick="event.stopPropagation()">
+            <button onclick="closeAllModals()" class="absolute top-6 right-6 text-2xl text-neutral-500 hover:text-white transition-colors">&times;</button>
+            <div class="prose prose-invert max-w-none"><h1 class="text-3xl font-bold mb-2">Privacy Policy</h1><p class="text-neutral-500 text-sm mb-8 font-mono">Last Updated: January 28, 2026</p><h3 class="text-xl font-bold text-white mt-8 mb-4">1. Overview</h3><p class="text-neutral-400 mb-4">Belto Inc. respects your privacy. SlyOS is designed as "Local-First" infrastructure.</p><h3 class="text-xl font-bold text-white mt-8 mb-4">2. Data We Collect</h3><p class="text-neutral-400 mb-4">Technical telemetry only: device UUID, hardware specs, performance metrics, status heartbeats.</p><h3 class="text-xl font-bold text-white mt-8 mb-4">3. Data We Do NOT Collect</h3><div class="bg-red-500/10 border border-red-500/20 p-4 rounded-lg mb-4"><p class="text-red-200 font-bold">Crucial:</p><p class="text-red-200/70 text-sm">We do not collect prompts or completions. All text generation happens locally.</p></div></div>
+            <div class="mt-8 pt-8 border-t border-white/10 flex justify-end"><button onclick="closeAllModals()" class="px-8 py-3 bg-white text-black font-bold rounded-full text-sm hover:bg-[var(--accent)] hover:text-white transition-colors">I Understand</button></div>
+        </div>
+        <div id="modal-terms" class="modal-content bg-[#0a0a0a] border border-white/10 w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-xl p-8 hidden relative shadow-2xl" onclick="event.stopPropagation()">
+            <button onclick="closeAllModals()" class="absolute top-6 right-6 text-2xl text-neutral-500 hover:text-white transition-colors">&times;</button>
+            <div class="prose prose-invert max-w-none"><h1 class="text-3xl font-bold mb-2">Terms of Service</h1><p class="text-neutral-500 text-sm mb-8 font-mono">Effective: January 28, 2026</p><h3 class="text-xl font-bold text-white mt-8 mb-4">1. Acceptance</h3><p class="text-neutral-400 mb-4">By using the SDK or Dashboard, you agree to these Terms.</p><h3 class="text-xl font-bold text-white mt-8 mb-4">2. License</h3><p class="text-neutral-400 mb-4">Limited, non-exclusive, revocable license for on-device AI inference.</p><h3 class="text-xl font-bold text-white mt-8 mb-4">3. Restrictions</h3><p class="text-neutral-400 mb-4">No reverse engineering, no malicious code, no Sybil attacks.</p><h3 class="text-xl font-bold text-white mt-8 mb-4">4. Disclaimer</h3><p class="text-neutral-400 mb-4">THE SOFTWARE IS PROVIDED "AS IS". Governed by Delaware law.</p></div>
+            <div class="mt-8 pt-8 border-t border-white/10 flex justify-end"><button onclick="closeAllModals()" class="px-8 py-3 bg-white text-black font-bold rounded-full text-sm hover:bg-[var(--accent)] hover:text-white transition-colors">Agree & Close</button></div>
+        </div>
+    </div>
+
+    <!-- ============ JAVASCRIPT ============ -->
+    <script>
+    // ================================================
+    // REPLACE THIS after deploying your Apps Script:
+    // ================================================
+    const SCRIPT_URL = 'YOUR_APPS_SCRIPT_URL_HERE';
+    const FALLBACK = 2150;
+
+    function renderDigits(id, num, style) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.innerHTML = '';
+        String(num).split('').forEach((d, i) => {
+            const s = document.createElement('span');
+            s.textContent = d;
+            if (style === 'ticker') {
+                s.className = 'inline-block bg-[rgba(255,77,0,0.1)] border border-[rgba(255,77,0,0.2)] rounded px-2 py-0.5 mx-[1px] text-[#FF4D00] font-bold text-lg';
+            } else {
+                s.className = 'inline-block bg-[rgba(255,255,255,0.05)] border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-1 mx-[1px] text-white font-bold';
+                s.style.opacity = '0';
+                s.style.animation = 'countUp 0.5s ease-out ' + (i * 0.08) + 's forwards';
+            }
+            el.appendChild(s);
+        });
+    }
+
+    async function loadCount() {
+        let count = FALLBACK;
+        try {
+            if (SCRIPT_URL !== 'YOUR_APPS_SCRIPT_URL_HERE') {
+                const r = await fetch(SCRIPT_URL + '?action=count');
+                const d = await r.json();
+                if (d.count) count = d.count;
+            }
+        } catch (e) {}
+        renderDigits('waitlist-counter', count, 'ticker');
+        renderDigits('waitlist-counter-large', count, 'large');
+    }
+
+    const form = document.getElementById('waitlist-form');
+    let savedEmail = '';
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const err = document.getElementById('wl-error');
+        err.classList.add('hidden');
+        const fn = document.getElementById('wl-fn').value.trim();
+        const ln = document.getElementById('wl-ln').value.trim();
+        const em = document.getElementById('wl-em').value.trim();
+        const co = document.getElementById('wl-co').value.trim();
+        const uc = document.getElementById('wl-uc').value;
+        if (!fn || !ln || !em) return;
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { err.textContent = 'Please enter a valid email.'; err.classList.remove('hidden'); return; }
+        savedEmail = em;
+        const btn = document.getElementById('wl-btn');
+        document.getElementById('wl-btn-text').textContent = 'Submitting...';
+        document.getElementById('wl-spinner').classList.remove('hidden');
+        btn.disabled = true; btn.classList.add('opacity-70');
+        try {
+            const r = await fetch(SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ action: 'signup', first_name: fn, last_name: ln, email: em, company: co, use_case: uc }) });
+            const d = await r.json();
+            if (d.status === 'duplicate') { err.textContent = 'This email is already on the waitlist!'; err.classList.remove('hidden'); resetBtn(); return; }
+            showOk(d.position || FALLBACK + 1, d.count || FALLBACK + 1);
+        } catch (e) { err.textContent = 'Something went wrong. Try again.'; err.classList.remove('hidden'); resetBtn(); }
+    });
+
+    function resetBtn() { document.getElementById('wl-btn-text').textContent = 'Join the Waitlist'; document.getElementById('wl-spinner').classList.add('hidden'); const b = document.getElementById('wl-btn'); b.disabled = false; b.classList.remove('opacity-70'); }
+    function showOk(pos, total) { form.classList.add('hidden'); document.getElementById('wl-success').classList.remove('hidden'); document.getElementById('wl-pos').textContent = '#' + pos; renderDigits('waitlist-counter', total, 'ticker'); renderDigits('waitlist-counter-large', total, 'large'); resetBtn(); }
+    async function resendEmail() { if (!savedEmail) return; try { await fetch(SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ action: 'resend', email: savedEmail }) }); alert('Resent! Check your inbox.'); } catch (e) { alert('Could not resend. Email support@belto.world'); } }
+
+    const backdrop = document.getElementById('modal-backdrop');
+    function openModal(id) { backdrop.classList.remove('hidden'); backdrop.classList.add('flex'); setTimeout(() => backdrop.classList.remove('opacity-0'), 10); document.querySelectorAll('.modal-content').forEach(el => el.classList.add('hidden')); document.getElementById('modal-' + id).classList.remove('hidden'); document.body.style.overflow = 'hidden'; }
+    function closeAllModals() { backdrop.classList.add('opacity-0'); setTimeout(() => { backdrop.classList.add('hidden'); backdrop.classList.remove('flex'); }, 300); document.body.style.overflow = ''; }
+
+    document.addEventListener('DOMContentLoaded', loadCount);
+    </script>
+</body>
+</html>

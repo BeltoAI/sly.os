@@ -1,4 +1,4 @@
-# 🔥 @emilshirokikh/slyos-sdk
+# 🔥 @beltoinc/slyos-sdk
 
 Official SDK for SlyOS on-device AI platform. Run AI models locally in browsers and Node.js.
 
@@ -6,16 +6,16 @@ Official SDK for SlyOS on-device AI platform. Run AI models locally in browsers 
 
 ## 📦 Installation
 ```bash
-npm install @emilshirokikh/slyos-sdk
+npm install @beltoinc/slyos-sdk
 ```
 
-**npm:** https://www.npmjs.com/package/@emilshirokikh/slyos-sdk
+**npm:** https://www.npmjs.com/package/@beltoinc/slyos-sdk
 
 ---
 
 ## 🚀 Quick Start
 ```javascript
-import SlyOS from '@emilshirokikh/slyos-sdk';
+import SlyOS from '@beltoinc/slyos-sdk';
 
 // 1. Initialize
 const sdk = new SlyOS({
@@ -261,7 +261,7 @@ Downloads and caches a knowledge base locally for offline RAG queries.
 
 ### Basic Chatbot
 ```javascript
-import SlyOS from '@emilshirokikh/slyos-sdk';
+import SlyOS from '@beltoinc/slyos-sdk';
 
 const sdk = new SlyOS({ apiKey: 'sk_live_...' });
 await sdk.initialize();
@@ -296,7 +296,7 @@ const response = await sdk.generate('quantum-1.7b', fullPrompt, {
 ### React Integration
 ```jsx
 import { useState, useEffect } from 'react';
-import SlyOS from '@emilshirokikh/slyos-sdk';
+import SlyOS from '@beltoinc/slyos-sdk';
 
 function Chatbot() {
   const [sdk, setSdk] = useState(null);
@@ -406,7 +406,7 @@ const detailed = await sdk.generate('quantum-3b', 'Complex question?');
 
 ## 📦 Package Info
 
-- **Package:** `@emilshirokikh/slyos-sdk`
+- **Package:** `@beltoinc/slyos-sdk`
 - **Version:** 1.4.0
 - **License:** Proprietary
 - **Size:** 168 KB (unpacked)
@@ -428,7 +428,7 @@ Built with Hugging Face Transformers.js
 
 ## 📞 Support
 
-- **npm:** https://www.npmjs.com/package/@emilshirokikh/slyos-sdk
+- **npm:** https://www.npmjs.com/package/@beltoinc/slyos-sdk
 - **GitHub:** https://github.com/BeltoAI/sly.os
 - **Docs:** See main README.md
 - **Email:** support@slyos.world

@@ -1,4 +1,4 @@
-import SlyOS from '@emilshirokikh/slyos-sdk';
+import SlyOS from '@beltoinc/slyos-sdk';
 
 console.log('🔥 Testing SlyOS SDK from npm...\n');
 

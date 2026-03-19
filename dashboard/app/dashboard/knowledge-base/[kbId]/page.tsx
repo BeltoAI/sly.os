@@ -197,7 +197,7 @@ export default function KBDetailPage() {
 
   // Code snippets — use live config values
   const sysPromptArg = configPrompt ? `\n  systemPrompt: \`${configPrompt.slice(0, 60)}${configPrompt.length > 60 ? '...' : ''}\`,` : '';
-  const tier2Code = `import SlyOS from '@emilshirokikh/slyos-sdk';
+  const tier2Code = `import SlyOS from '@beltoinc/slyos-sdk';
 
 const slyos = new SlyOS({ apiKey: 'YOUR_API_KEY' });
 await slyos.initialize();

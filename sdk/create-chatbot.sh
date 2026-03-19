@@ -183,7 +183,7 @@ print_success "Package configuration updated"
 # Install Slyos SDK + dotenv
 print_step "Installing dependencies"
 print_info "This may take a moment..."
-npm install @emilshirokikh/slyos-sdk dotenv node-fetch > /dev/null 2>&1
+npm install @beltoinc/slyos-sdk dotenv node-fetch > /dev/null 2>&1
 print_success "Dependencies installed"
 
 # Create the chatbot application
@@ -195,7 +195,7 @@ cat > app.mjs << 'CHATBOT_EOF'
 import 'dotenv/config';
 import readline from 'readline';
 import fetch from 'node-fetch';
-import SlyOS from '@emilshirokikh/slyos-sdk';
+import SlyOS from '@beltoinc/slyos-sdk';
 
 // Color codes for terminal output
 const colors = {
@@ -574,7 +574,7 @@ The chatbot supports multiple response formats from the SDK:
 - Verify the Slyos server is accessible
 - Ensure internet connection is active
 
-### "Cannot find module '@emilshirokikh/slyos-sdk'"
+### "Cannot find module '@beltoinc/slyos-sdk'"
 - Run `npm install` to install dependencies
 - Check npm log: `npm list`
 
