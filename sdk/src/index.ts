@@ -69,7 +69,7 @@ interface ProgressEvent {
 }
 
 interface SlyEvent {
-  type: 'auth' | 'device_registered' | 'device_profiled' | 'model_download_start' | 'model_download_progress' | 'model_loaded' | 'inference_start' | 'inference_complete' | 'error' | 'fallback_success' | 'fallback_error' | 'telemetry_flushed';
+  type: 'auth' | 'device_registered' | 'device_profiled' | 'model_download_start' | 'model_download_progress' | 'model_loaded' | 'inference_start' | 'inference_complete' | 'error' | 'fallback_success' | 'fallback_error' | 'telemetry_flushed' | 'token';
   data?: any;
   timestamp: number;
 }
