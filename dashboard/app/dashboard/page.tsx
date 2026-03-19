@@ -4,7 +4,7 @@ import { getAnalytics, getDevices, getModels, getBillingStatus } from '@/lib/api
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
-import { Smartphone, Zap, Brain, ArrowRight, Activity, Plus, Award, TrendingUp, BarChart3 } from 'lucide-react';
+import { Smartphone, Zap, Brain, ArrowRight, Activity, Plus, Award, TrendingUp, BarChart3, Info } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
 export default function DashboardPage() {
@@ -112,13 +112,16 @@ export default function DashboardPage() {
           <p className="text-xs text-[#555555] mt-1">Current</p>
         </div>
 
-        <div className="p-5 border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] rounded-xl">
+        <div className="p-5 border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] rounded-xl group relative">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-medium text-[#888888] uppercase">Cost Saved</span>
+            <span className="text-xs font-medium text-[#888888] uppercase flex items-center gap-1.5">Cost Saved <Info className="w-3 h-3 text-[#555555] cursor-help" /></span>
             <Award className="w-4 h-4 text-[#22c55e]" />
           </div>
           <div className="text-2xl font-bold text-[#EDEDED]">${analytics?.costSavings?.estimatedCostSaved?.toFixed(2) || '0.00'}</div>
           <p className="text-xs text-[#555555] mt-1">vs cloud API</p>
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-[#1a1a1a] border border-[rgba(255,255,255,0.1)] rounded-lg text-xs text-[#999] opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
+            Based on {analytics?.costSavings?.tokensGenerated?.toLocaleString() || 0} tokens generated on-device instead of cloud APIs. Estimated at ~$0.03/1K tokens (GPT-4o average blended rate) or $0.002 minimum per inference.
+          </div>
         </div>
       </div>
 

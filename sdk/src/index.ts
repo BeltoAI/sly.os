@@ -1266,6 +1266,30 @@ class SlyOS {
       const tokensGenerated = response.split(/\s+/).filter(Boolean).length;
 
       this.emitProgress('ready', 100, `Streamed ${tokensGenerated} tokens in ${(totalMs/1000).toFixed(1)}s`);
+      this.emitEvent('inference_complete', { modelId, latencyMs: totalMs, tokensGenerated });
+
+      // Batch telemetry (device intelligence)
+      this.recordTelemetry({
+        latency_ms: totalMs,
+        tokens_generated: tokensGenerated,
+        success: true,
+        model_id: modelId,
+        timestamp: Date.now(),
+      });
+
+      // Legacy telemetry — updates analytics_daily for dashboard counts
+      if (this.token) {
+        await axios.post(`${this.apiUrl}/api/telemetry`, {
+          device_id: this.deviceId,
+          event_type: 'inference',
+          model_id: modelId,
+          latency_ms: totalMs,
+          tokens_generated: tokensGenerated,
+          success: true,
+        }, {
+          headers: { Authorization: `Bearer ${this.token}` },
+        }).catch(() => {});
+      }
 
       return { text: response, firstTokenMs: firstTokenTime, totalMs, tokensGenerated };
     } catch (error: any) {
