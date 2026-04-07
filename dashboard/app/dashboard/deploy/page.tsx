@@ -63,8 +63,8 @@ export default function DeployPage() {
   // Terminal — Unix (curl | bash)
   const oneLiner = `curl -sL https://raw.githubusercontent.com/BeltoAI/sly.os/master/sdk/create-chatbot.sh | bash -s -- --api-key ${apiKey} --model ${modelId}${kbId ? ` --kb-id ${kbId}` : ''}`;
 
-  // Terminal — Windows PowerShell quick connectivity test
-  const psOneLiner = `$k="${apiKey}"; $m="${modelId}"; $r=irm -Method POST "https://api.slyos.world/api/widget/$k/generate" -ContentType "application/json" -Body (ConvertTo-Json @{message="Hello";model=$m;sessionId=[guid]::NewGuid()}); Write-Host "Response: $($r.response)" -ForegroundColor Green`;
+  // Terminal — Windows PowerShell prerequisite check
+  const psOneLiner = `$v = node --version 2>&1; if ($LASTEXITCODE -eq 0) { Write-Host "✓ Node.js $v is installed — you're ready to run the chatbot!" -ForegroundColor Green } else { Write-Host "✗ Node.js not found. Download it from https://nodejs.org and re-run." -ForegroundColor Red }`;
 
   const downloadBatLauncher = () => {
     // ── app.mjs — real local inference via @beltoinc/slyos-sdk ──────────────
@@ -466,21 +466,21 @@ ${kbId ? `
 
                   <div className="flex items-center gap-3">
                     <div className="flex-1 h-px bg-[rgba(255,255,255,0.06)]" />
-                    <span className="text-xs text-[#555555]">or test API connectivity in PowerShell</span>
+                    <span className="text-xs text-[#555555]">or check prerequisites first</span>
                     <div className="flex-1 h-px bg-[rgba(255,255,255,0.06)]" />
                   </div>
 
                   <div>
                     <p className="text-sm text-[#EDEDED] font-semibold mb-1">
-                      Quick connectivity test
+                      Check prerequisites
                     </p>
                     <p className="text-xs text-[#555555] mb-3">
-                      Press <kbd className="bg-[#1a1a1a] border border-[rgba(255,255,255,0.1)] px-1.5 py-0.5 rounded text-[#888888] font-mono">Win</kbd> + <kbd className="bg-[#1a1a1a] border border-[rgba(255,255,255,0.1)] px-1.5 py-0.5 rounded text-[#888888] font-mono">X</kbd> → Terminal → paste and press Enter
+                      Press <kbd className="bg-[#1a1a1a] border border-[rgba(255,255,255,0.1)] px-1.5 py-0.5 rounded text-[#888888] font-mono">Win</kbd> + <kbd className="bg-[#1a1a1a] border border-[rgba(255,255,255,0.1)] px-1.5 py-0.5 rounded text-[#888888] font-mono">X</kbd> → Terminal (PowerShell) → paste and press Enter
                     </p>
                     <div className="bg-[#050505] border border-[rgba(255,255,255,0.06)] rounded-xl p-4 font-mono text-xs text-[#4ade80] overflow-x-auto whitespace-pre-wrap leading-relaxed break-all">
                       {psOneLiner}
                     </div>
-                    <p className="text-[11px] text-[#555555] mt-2">For real local AI inference, use the Download button above.</p>
+                    <p className="text-[11px] text-[#555555] mt-2">Node.js is required for the chatbot. If not installed, get it at <span className="text-[#FF4D00]">nodejs.org</span> — then download the launcher above.</p>
                   </div>
 
                   <Button
@@ -490,7 +490,7 @@ ${kbId ? `
                     {copiedStep === 1 ? (
                       <><Check className="w-4 h-4 text-[#4ade80]" /> Copied!</>
                     ) : (
-                      <><Copy className="w-4 h-4" /> Copy Test Command</>
+                      <><Copy className="w-4 h-4" /> Copy Check Command</>
                     )}
                   </Button>
                 </>
