@@ -1,16 +1,16 @@
 'use client';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   MessageSquare, Thermometer, Hash, Target, MessageCircle, ArrowLeft, ArrowRight, Code,
   Upload, Loader, FileText, File, Globe, Trash2, Check, X, AlertTriangle, BookOpen,
-  Database, ChevronDown, ChevronUp, Copy, Code2, HardDrive, Lock
+  Database, ChevronDown, ChevronUp, Lock, Search, RefreshCw, Layers, Sliders, Zap
 } from 'lucide-react';
 import {
   getKnowledgeBases, createKnowledgeBase, getDocuments, uploadDocuments,
-  deleteDocument, scrapeUrl, deleteKnowledgeBase
+  deleteDocument, scrapeUrl, updateKnowledgeBase, ragSearch
 } from '@/lib/rag-api';
 
 const getFileIcon = (fileName: string) => {
@@ -53,6 +53,20 @@ export default function ConfigurePage() {
   const [showRag, setShowRag] = useState(true);
   const [userPlan, setUserPlan] = useState<string>('pure_edge');
 
+  // RAG advanced config
+  const [ragConfig, setRagConfig] = useState({ chunkSize: 512, chunkOverlap: 128, topK: 5 });
+  const [showRagConfig, setShowRagConfig] = useState(false);
+  const [savingRagConfig, setSavingRagConfig] = useState(false);
+
+  // RAG test search
+  const [showRagTest, setShowRagTest] = useState(false);
+  const [testQuery, setTestQuery] = useState('');
+  const [testResults, setTestResults] = useState<any[]>([]);
+  const [testing, setTesting] = useState(false);
+
+  // Auto-refresh for pending docs
+  const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   useEffect(() => {
     const savedModelId = localStorage.getItem('primaryModel');
     const savedModelName = localStorage.getItem('primaryModelName');
@@ -78,20 +92,74 @@ export default function ConfigurePage() {
     setRagLoading(true);
     try {
       const kbs = await getKnowledgeBases();
-      // Find KB matching this model deployment
       let existing = kbs.find((k: any) => k.model_id === mId);
-      if (!existing && kbs.length > 0) existing = kbs[0]; // fallback to first KB
+      if (!existing && kbs.length > 0) existing = kbs[0];
 
       if (existing) {
         setKb(existing);
+        if (existing.chunk_size) setRagConfig(prev => ({
+          ...prev,
+          chunkSize: existing.chunk_size,
+          chunkOverlap: existing.chunk_overlap ?? 128,
+          topK: existing.top_k ?? 5,
+        }));
         const docs = await getDocuments(existing.id);
         setDocuments(docs);
+        scheduleRefreshIfPending(docs, existing.id);
       }
-      // If no KB exists, that's fine — we'll create one on first upload
     } catch (err) {
       console.error('Failed to load RAG data:', err);
     } finally {
       setRagLoading(false);
+    }
+  };
+
+  // Auto-refresh docs while any are still indexing
+  const scheduleRefreshIfPending = useCallback((docs: any[], kbId: string) => {
+    const hasPending = docs.some(d => !d.indexed && !d.indexing_error);
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    if (hasPending) {
+      refreshTimerRef.current = setTimeout(async () => {
+        try {
+          const updated = await getDocuments(kbId);
+          setDocuments(updated);
+          scheduleRefreshIfPending(updated, kbId);
+        } catch {}
+      }, 4000);
+    }
+  }, []);
+
+  // Cleanup timer on unmount
+  useEffect(() => { return () => { if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current); }; }, []);
+
+  const saveRagConfig = async () => {
+    if (!kb) return;
+    setSavingRagConfig(true);
+    try {
+      await updateKnowledgeBase(kb.id, {
+        chunk_size: ragConfig.chunkSize,
+        chunk_overlap: ragConfig.chunkOverlap,
+        top_k: ragConfig.topK,
+      });
+      setNotification({ type: 'success', message: 'RAG configuration saved' });
+    } catch {
+      setNotification({ type: 'error', message: 'Failed to save RAG config' });
+    } finally {
+      setSavingRagConfig(false);
+    }
+  };
+
+  const handleTestSearch = async () => {
+    if (!kb || !testQuery.trim()) return;
+    setTesting(true);
+    setTestResults([]);
+    try {
+      const res = await ragSearch(kb.id, testQuery, ragConfig.topK);
+      setTestResults(res.results || res.chunks || []);
+    } catch (err: any) {
+      setNotification({ type: 'error', message: 'Search failed — ' + (err.response?.data?.error || err.message) });
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -126,6 +194,7 @@ export default function ConfigurePage() {
       if (fileInputRef.current) fileInputRef.current.value = '';
       const docs = await getDocuments(kbId);
       setDocuments(docs);
+      scheduleRefreshIfPending(docs, kbId);
     } catch (err: any) {
       setNotification({ type: 'error', message: err.response?.data?.error || 'Upload failed' });
     } finally {
@@ -173,6 +242,7 @@ export default function ConfigurePage() {
       setScrapeUrl('');
       const docs = await getDocuments(kbId);
       setDocuments(docs);
+      scheduleRefreshIfPending(docs, kbId);
     } catch (err: any) {
       setNotification({ type: 'error', message: err.response?.data?.error || 'Failed to scrape' });
     } finally {
@@ -187,6 +257,9 @@ export default function ConfigurePage() {
   };
 
   const indexedCount = documents.filter(d => d.indexed).length;
+  const pendingCount = documents.filter(d => !d.indexed && !d.indexing_error).length;
+  const errorCount = documents.filter(d => d.indexing_error).length;
+  const totalChunks = documents.reduce((sum, d) => sum + (d.chunk_count || 0), 0);
 
   return (
     <div className="max-w-4xl mx-auto animate-fade-in">
@@ -225,7 +298,7 @@ export default function ConfigurePage() {
         </div>
       </div>
 
-      {/* ═══ RAG Data Upload ═══ */}
+      {/* ═══ RAG Knowledge Base ═══ */}
       <div className={`backdrop-blur-xl bg-[#0A0A0A]/80 border rounded-2xl overflow-hidden mb-6 ${
         userPlan === 'pure_edge' ? 'border-[rgba(255,77,0,0.3)]' : 'border-[rgba(255,255,255,0.08)]'
       }`}>
@@ -242,20 +315,43 @@ export default function ConfigurePage() {
           </div>
         )}
 
+        {/* Header toggle */}
         <button onClick={() => setShowRag(!showRag)} className="w-full p-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Database className="w-5 h-5 text-[#FF4D00]" />
             <h3 className="text-base font-semibold text-[#EDEDED]">RAG Knowledge Base</h3>
-            <span className="text-[10px] bg-[rgba(255,255,255,0.06)] text-[#888888] px-2.5 py-1 rounded-lg font-semibold">
-              {documents.length > 0 ? `${documents.length} source${documents.length !== 1 ? 's' : ''}` : 'Optional'}
-            </span>
+            {documents.length > 0 ? (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] bg-[rgba(74,222,128,0.12)] text-[#4ade80] px-2 py-0.5 rounded font-semibold">{indexedCount} ready</span>
+                {pendingCount > 0 && <span className="text-[10px] bg-[rgba(251,191,36,0.12)] text-[#fbbf24] px-2 py-0.5 rounded font-semibold">{pendingCount} indexing</span>}
+                {errorCount > 0 && <span className="text-[10px] bg-[rgba(239,68,68,0.12)] text-[#ef4444] px-2 py-0.5 rounded font-semibold">{errorCount} failed</span>}
+              </div>
+            ) : (
+              <span className="text-[10px] bg-[rgba(255,255,255,0.06)] text-[#888888] px-2.5 py-1 rounded-lg font-semibold">Optional</span>
+            )}
           </div>
           {showRag ? <ChevronUp className="w-5 h-5 text-[#555555]" /> : <ChevronDown className="w-5 h-5 text-[#555555]" />}
         </button>
 
         {showRag && (
           <div className="px-6 pb-6 -mt-2">
-            <p className="text-xs text-[#666666] mb-4">Upload documents to give your model context. Files are chunked, embedded, and stored as a vector database for retrieval.</p>
+
+            {/* Stats bar */}
+            {documents.length > 0 && (
+              <div className="grid grid-cols-3 gap-3 mb-5">
+                {[
+                  { label: 'Sources', value: documents.length },
+                  { label: 'Total Chunks', value: totalChunks.toLocaleString() },
+                  { label: 'Top-K Retrieval', value: ragConfig.topK },
+                ].map(({ label, value }) => (
+                  <div key={label} className="bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] rounded-xl p-3 text-center">
+                    <div className="text-lg font-bold text-[#EDEDED]">{value}</div>
+                    <div className="text-[10px] text-[#555555] mt-0.5">{label}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {userPlan === 'pure_edge' && (
               <div className="p-3 bg-[rgba(255,77,0,0.08)] border border-[rgba(255,77,0,0.15)] rounded-lg mb-4">
                 <p className="text-xs text-[#FF4D00]">RAG features require the Hybrid RAG plan. <a href="/dashboard/billing" className="underline hover:no-underline">Upgrade now</a></p>
@@ -284,15 +380,13 @@ export default function ConfigurePage() {
                   {userPlan === 'pure_edge' ? (
                     <>
                       <Lock className="w-7 h-7 mx-auto mb-2 text-[#FF4D00]" />
-                      <p className="text-sm text-[#EDEDED] font-medium mb-1">
-                        RAG features require Hybrid RAG plan
-                      </p>
+                      <p className="text-sm text-[#EDEDED] font-medium mb-1">RAG features require Hybrid RAG plan</p>
                       <p className="text-xs text-[#888888]">Upgrade to unlock knowledge bases and document upload</p>
                     </>
                   ) : uploading ? (
-                    <div className="flex items-center justify-center gap-3">
+                    <div className="flex flex-col items-center gap-2">
                       <Loader className="w-5 h-5 animate-spin text-[#FF4D00]" />
-                      <span className="text-sm text-[#888888]">Uploading and indexing...</span>
+                      <span className="text-sm text-[#888888]">Uploading and chunking...</span>
                     </div>
                   ) : (
                     <>
@@ -300,7 +394,7 @@ export default function ConfigurePage() {
                       <p className="text-sm text-[#EDEDED] font-medium mb-1">
                         Drop files here or <span className="text-[#FF4D00]">click to browse</span>
                       </p>
-                      <p className="text-xs text-[#555555]">PDF, DOCX, TXT, Markdown, CSV — up to 50MB</p>
+                      <p className="text-xs text-[#555555]">PDF, DOCX, TXT, Markdown, CSV — up to 50MB per file</p>
                     </>
                   )}
                   <input ref={fileInputRef} type="file" multiple accept=".pdf,.docx,.txt,.md,.csv"
@@ -309,9 +403,9 @@ export default function ConfigurePage() {
                 </div>
 
                 {/* URL Scraper */}
-                <div className="flex gap-2 mb-4">
+                <div className="flex gap-2 mb-5">
                   <input
-                    type="url" placeholder="https://docs.example.com/page"
+                    type="url" placeholder="https://docs.example.com/page — scrape any public URL"
                     value={scrapeUrl_} onChange={(e) => setScrapeUrl(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter' && userPlan === 'hybrid_rag') handleScrapeUrl(); }}
                     className={`flex-1 bg-[#050505] border rounded-lg px-4 py-2.5 text-sm focus:outline-none transition-all ${
@@ -329,50 +423,179 @@ export default function ConfigurePage() {
 
                 {/* Sources List */}
                 {documents.length > 0 && (
-                  <div className="space-y-2">
+                  <div className="mb-5">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-xs text-[#555555] font-semibold uppercase tracking-wider">Sources</span>
-                      <span className="text-xs text-[#555555]">{indexedCount}/{documents.length} indexed</span>
+                      <div className="flex items-center gap-2">
+                        {pendingCount > 0 && (
+                          <span className="flex items-center gap-1 text-[10px] text-[#fbbf24]">
+                            <RefreshCw className="w-2.5 h-2.5 animate-spin" /> Auto-refreshing
+                          </span>
+                        )}
+                        <span className="text-xs text-[#555555]">{indexedCount}/{documents.length} indexed · {totalChunks.toLocaleString()} chunks</span>
+                      </div>
                     </div>
-                    {documents.map((doc) => (
-                      <div key={doc.id}
-                        className="flex items-center gap-3 p-3 bg-[rgba(0,0,0,0.3)] border border-[rgba(255,255,255,0.04)] rounded-lg hover:border-[rgba(255,255,255,0.08)] transition-all group"
-                      >
-                        {getFileIcon(doc.name)}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-[#EDEDED] truncate">{doc.name}</p>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-[10px] text-[#555555]">{doc.file_type?.toUpperCase()}</span>
-                            <span className="text-[10px] text-[#555555]">{formatBytes(doc.file_size_bytes)}</span>
-                            <span className="text-[10px] text-[#555555]">{doc.chunk_count || 0} chunks</span>
+                    <div className="space-y-2">
+                      {documents.map((doc) => (
+                        <div key={doc.id}
+                          className="flex items-center gap-3 p-3 bg-[rgba(0,0,0,0.3)] border border-[rgba(255,255,255,0.04)] rounded-lg hover:border-[rgba(255,255,255,0.08)] transition-all group"
+                        >
+                          {getFileIcon(doc.name)}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-[#EDEDED] truncate">{doc.name}</p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              {doc.file_type && <span className="text-[10px] text-[#555555]">{doc.file_type.toUpperCase()}</span>}
+                              {doc.file_size_bytes > 0 && <span className="text-[10px] text-[#555555]">{formatBytes(doc.file_size_bytes)}</span>}
+                              <span className="text-[10px] text-[#555555]">{doc.chunk_count || 0} chunks</span>
+                              {doc.indexing_error && (
+                                <span className="text-[10px] text-[#ef4444] truncate max-w-[120px]" title={doc.indexing_error}>
+                                  {doc.indexing_error.substring(0, 30)}...
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {doc.indexed ? (
+                              <span className="flex items-center gap-1 text-[10px] text-[#4ade80]"><Check className="w-3 h-3" /> Ready</span>
+                            ) : doc.indexing_error ? (
+                              <span className="flex items-center gap-1 text-[10px] text-[#ef4444]"><AlertTriangle className="w-3 h-3" /> Failed</span>
+                            ) : (
+                              <span className="flex items-center gap-1 text-[10px] text-[#fbbf24]"><Loader className="w-3 h-3 animate-spin" /> Indexing</span>
+                            )}
+                            {confirmDeleteDoc === doc.id ? (
+                              <div className="flex gap-1.5 items-center">
+                                <button onClick={() => setConfirmDeleteDoc(null)}
+                                  className="text-xs text-[#888888] hover:text-[#EDEDED] px-2 py-1 rounded bg-[rgba(255,255,255,0.06)] hover:bg-[rgba(255,255,255,0.1)] transition-all">Cancel</button>
+                                <button onClick={() => handleDeleteDocument(doc.id)} disabled={deletingDoc}
+                                  className="text-xs text-white bg-[#ef4444] hover:bg-[#dc2626] px-2 py-1 rounded transition-all disabled:opacity-50">
+                                  {deletingDoc ? 'Removing...' : 'Remove'}
+                                </button>
+                              </div>
+                            ) : (
+                              <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteDoc(doc.id); }}
+                                className="text-[#666666] hover:text-[#ef4444] transition-all p-1 rounded hover:bg-[rgba(239,68,68,0.1)]">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          {doc.indexed ? (
-                            <span className="text-[10px] text-[#4ade80]"><Check className="w-3 h-3" /></span>
-                          ) : doc.indexing_error ? (
-                            <span className="text-[10px] text-[#ef4444]"><AlertTriangle className="w-3 h-3" /></span>
-                          ) : (
-                            <Loader className="w-3 h-3 animate-spin text-[#888888]" />
-                          )}
-                          {confirmDeleteDoc === doc.id ? (
-                            <div className="flex gap-1.5 items-center">
-                              <button onClick={() => setConfirmDeleteDoc(null)}
-                                className="text-xs text-[#888888] hover:text-[#EDEDED] px-2 py-1 rounded bg-[rgba(255,255,255,0.06)] hover:bg-[rgba(255,255,255,0.1)] transition-all">Cancel</button>
-                              <button onClick={() => handleDeleteDocument(doc.id)} disabled={deletingDoc}
-                                className="text-xs text-white bg-[#ef4444] hover:bg-[#dc2626] px-2 py-1 rounded transition-all disabled:opacity-50">
-                                {deletingDoc ? 'Removing...' : 'Remove'}
-                              </button>
-                            </div>
-                          ) : (
-                            <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteDoc(doc.id); }}
-                              className="text-[#666666] hover:text-[#ef4444] transition-all p-1 rounded hover:bg-[rgba(239,68,68,0.1)]">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* RAG Advanced Config */}
+                {userPlan === 'hybrid_rag' && (
+                  <div className="border border-[rgba(255,255,255,0.06)] rounded-xl overflow-hidden mb-4">
+                    <button
+                      onClick={() => setShowRagConfig(!showRagConfig)}
+                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-[rgba(255,255,255,0.02)] transition-all"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Sliders className="w-4 h-4 text-[#FF4D00]" />
+                        <span className="text-sm font-medium text-[#EDEDED]">Retrieval Settings</span>
+                        <span className="text-[10px] text-[#555555]">chunk size, overlap, top-K</span>
                       </div>
-                    ))}
+                      {showRagConfig ? <ChevronUp className="w-4 h-4 text-[#555555]" /> : <ChevronDown className="w-4 h-4 text-[#555555]" />}
+                    </button>
+
+                    {showRagConfig && (
+                      <div className="px-4 pb-4 border-t border-[rgba(255,255,255,0.06)]">
+                        <p className="text-xs text-[#555555] mt-3 mb-4">
+                          These settings apply when re-indexing new documents. Smaller chunks = more precise retrieval; larger = more context per result.
+                        </p>
+                        <div className="grid grid-cols-3 gap-3 mb-3">
+                          {[
+                            { label: 'Chunk Size', key: 'chunkSize', min: 128, max: 2048, step: 128, hint: 'tokens per chunk' },
+                            { label: 'Chunk Overlap', key: 'chunkOverlap', min: 0, max: 512, step: 32, hint: 'token overlap' },
+                            { label: 'Top-K Results', key: 'topK', min: 1, max: 20, step: 1, hint: 'chunks retrieved' },
+                          ].map(({ label, key, min, max, step, hint }) => (
+                            <div key={key}>
+                              <label className="text-[10px] text-[#888888] font-semibold uppercase tracking-wider">{label}</label>
+                              <input
+                                type="number" min={min} max={max} step={step}
+                                value={(ragConfig as any)[key]}
+                                onChange={(e) => setRagConfig(prev => ({ ...prev, [key]: parseInt(e.target.value) || min }))}
+                                className="w-full mt-1.5 bg-[#050505] border border-[rgba(255,255,255,0.08)] rounded-lg px-3 py-2 text-sm text-[#EDEDED] focus:outline-none focus:border-[rgba(255,77,0,0.4)] transition-all"
+                              />
+                              <p className="text-[10px] text-[#444444] mt-1">{hint}</p>
+                            </div>
+                          ))}
+                        </div>
+                        <Button
+                          onClick={saveRagConfig}
+                          disabled={savingRagConfig || !kb}
+                          size="sm"
+                          className="gap-2 bg-[rgba(255,77,0,0.15)] hover:bg-[rgba(255,77,0,0.25)] text-[#FF4D00] border border-[rgba(255,77,0,0.3)] hover:border-[rgba(255,77,0,0.5)]"
+                        >
+                          {savingRagConfig ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                          Save Retrieval Config
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* RAG Test Search */}
+                {userPlan === 'hybrid_rag' && documents.some(d => d.indexed) && (
+                  <div className="border border-[rgba(255,255,255,0.06)] rounded-xl overflow-hidden">
+                    <button
+                      onClick={() => setShowRagTest(!showRagTest)}
+                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-[rgba(255,255,255,0.02)] transition-all"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Zap className="w-4 h-4 text-[#FF4D00]" />
+                        <span className="text-sm font-medium text-[#EDEDED]">Test Retrieval</span>
+                        <span className="text-[10px] text-[#555555]">preview what chunks your query would fetch</span>
+                      </div>
+                      {showRagTest ? <ChevronUp className="w-4 h-4 text-[#555555]" /> : <ChevronDown className="w-4 h-4 text-[#555555]" />}
+                    </button>
+
+                    {showRagTest && (
+                      <div className="px-4 pb-4 border-t border-[rgba(255,255,255,0.06)]">
+                        <div className="flex gap-2 mt-3 mb-3">
+                          <input
+                            type="text"
+                            placeholder="Enter a test query..."
+                            value={testQuery}
+                            onChange={(e) => setTestQuery(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleTestSearch(); }}
+                            className="flex-1 bg-[#050505] border border-[rgba(255,255,255,0.08)] rounded-lg px-4 py-2 text-sm text-[#EDEDED] placeholder-[#555555] focus:outline-none focus:border-[rgba(255,77,0,0.4)] transition-all"
+                          />
+                          <Button onClick={handleTestSearch} disabled={testing || !testQuery.trim()} size="sm" className="gap-2 px-4">
+                            {testing ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                            Search
+                          </Button>
+                        </div>
+
+                        {testResults.length > 0 && (
+                          <div className="space-y-2">
+                            <p className="text-[10px] text-[#555555] font-semibold uppercase tracking-wider mb-2">{testResults.length} chunks retrieved</p>
+                            {testResults.map((r: any, i: number) => (
+                              <div key={i} className="p-3 bg-[rgba(255,255,255,0.02)] border border-[rgba(255,255,255,0.06)] rounded-lg">
+                                <div className="flex items-center justify-between mb-1.5">
+                                  <span className="text-[10px] text-[#888888] truncate max-w-[200px]">{r.document_name || r.source || `Chunk ${i + 1}`}</span>
+                                  {r.score !== undefined && (
+                                    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                                      r.score > 0.8 ? 'bg-[rgba(74,222,128,0.12)] text-[#4ade80]' :
+                                      r.score > 0.5 ? 'bg-[rgba(251,191,36,0.12)] text-[#fbbf24]' :
+                                      'bg-[rgba(255,255,255,0.06)] text-[#888888]'
+                                    }`}>
+                                      {(r.score * 100).toFixed(0)}% match
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-xs text-[#888888] leading-relaxed line-clamp-4">{r.content || r.text || r.chunk}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {!testing && testQuery && testResults.length === 0 && (
+                          <p className="text-xs text-[#555555] text-center py-4">No results — try a different query or check that documents are indexed.</p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </>

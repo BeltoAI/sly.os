@@ -4,13 +4,12 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import {
-  LayoutDashboard, Smartphone, Bot, Rocket, BookOpen, Settings, LogOut, Flame, ChevronRight, Database, Lightbulb
+  LayoutDashboard, Smartphone, Bot, BookOpen, Settings, LogOut, Flame, ChevronRight, Database, Lightbulb
 } from 'lucide-react';
 
 const navItems = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { href: '/dashboard/models', label: 'Models', icon: Bot },
-  { href: '/dashboard/deploy', label: 'Deploy', icon: Rocket },
   { href: '/dashboard/knowledge-base', label: 'Knowledge Base', icon: Database },
   { href: '/dashboard/devices', label: 'Devices', icon: Smartphone },
   { href: '/dashboard/documentation', label: 'Documentation', icon: BookOpen },

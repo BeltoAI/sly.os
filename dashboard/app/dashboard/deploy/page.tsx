@@ -22,6 +22,7 @@ export default function DeployPage() {
     'terminal'
   );
   const [mobileTab, setMobileTab] = useState<'android' | 'ios'>('android');
+  const [os, setOs] = useState<'windows' | 'unix'>('windows');
   const [copiedStep, setCopiedStep] = useState<number | null>(null);
   const [apiKey, setApiKey] = useState('sk_live_your_api_key_here');
   const [modelId, setModelId] = useState('quantum-3b');
@@ -59,8 +60,123 @@ export default function DeployPage() {
 
   // ============= CODE SNIPPETS =============
 
-  // Terminal
+  // Terminal — Unix (curl | bash)
   const oneLiner = `curl -sL https://raw.githubusercontent.com/BeltoAI/sly.os/master/sdk/create-chatbot.sh | bash -s -- --api-key ${apiKey} --model ${modelId}${kbId ? ` --kb-id ${kbId}` : ''}`;
+
+  // Terminal — Windows PowerShell (self-contained, no remote fetch)
+  const psOneLiner = `$k='${apiKey}';$m='${modelId}';$s=[guid]::NewGuid();while($true){Write-Host "You> " -n -f Cyan;$i=Read-Host;if($i-match'^exit$'){break};$r=irm -Method POST -Uri "https://api.slyos.world/api/widget/$k/generate" -ContentType 'application/json' -Body ('{\"message\":\"'+$i+'\",\"model\":\"'+$m+'\",\"sessionId\":\"'+$s+'\"}');Write-Host "AI> $($r.response)" -f Green;Write-Host ""}`;
+
+  const downloadBatLauncher = () => {
+    // Full self-contained PowerShell chatbot — no remote fetch needed
+    const psScript = `
+$ApiKey  = '${apiKey}'
+$Model   = '${modelId}'${kbId ? `\n$KbId    = '${kbId}'` : ''}
+$ApiBase = 'https://api.slyos.world'
+$Session = [System.Guid]::NewGuid().ToString()
+
+function Write-Banner {
+    Clear-Host
+    Write-Host ""
+    Write-Host "  ███████╗██╗  ██╗   ██╗ ██████╗ ███████╗" -ForegroundColor Red
+    Write-Host "  ██╔════╝██║  ╚██╗ ██╔╝██╔═══██╗██╔════╝" -ForegroundColor Red
+    Write-Host "  ███████╗██║   ╚████╔╝ ██║   ██║███████╗" -ForegroundColor Red
+    Write-Host "  ╚════██║██║    ╚██╔╝  ██║   ██║╚════██║" -ForegroundColor Red
+    Write-Host "  ███████║███████╗██║   ╚██████╔╝███████║" -ForegroundColor Red
+    Write-Host "  ╚══════╝╚══════╝╚═╝    ╚═════╝ ╚══════╝" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "  Model  : $Model" -ForegroundColor DarkGray
+    Write-Host "  API    : $ApiBase" -ForegroundColor DarkGray${kbId ? `\n    Write-Host "  KB     : $KbId" -ForegroundColor DarkGray` : ''}
+    Write-Host "  Session: $Session" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "  Type your message and press Enter. Type 'exit' to quit." -ForegroundColor Gray
+    Write-Host ("  " + "─" * 50) -ForegroundColor DarkGray
+    Write-Host ""
+}
+
+function Send-Message($userMessage) {
+    $body = @{
+        message   = $userMessage
+        model     = $Model
+        sessionId = $Session${kbId ? `\n        knowledgeBaseId = $KbId` : ''}
+    } | ConvertTo-Json -Compress
+
+    try {
+        $resp = Invoke-RestMethod \`
+            -Method POST \`
+            -Uri "$ApiBase/api/widget/$ApiKey/generate" \`
+            -ContentType 'application/json; charset=utf-8' \`
+            -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) \`
+            -ErrorAction Stop
+        return $resp.response
+    } catch {
+        $code = $_.Exception.Response.StatusCode.value__
+        if ($code -eq 401) { return "[Error] Invalid API key — check your key in the dashboard." }
+        if ($code -eq 402) { return "[Error] Subscription required — visit slyos.world to activate your plan." }
+        return "[Error] $($_.Exception.Message)"
+    }
+}
+
+Write-Banner
+
+while ($true) {
+    Write-Host "  You  > " -ForegroundColor Cyan -NoNewline
+    $userInput = $Host.UI.ReadLine()
+
+    if ([string]::IsNullOrWhiteSpace($userInput)) { continue }
+    if ($userInput -match '^(exit|quit|bye)$') {
+        Write-Host ""
+        Write-Host "  Goodbye!" -ForegroundColor DarkGray
+        Write-Host ""
+        break
+    }
+    if ($userInput -eq 'clear') { Write-Banner; continue }
+
+    Write-Host "  AI   > " -ForegroundColor Green -NoNewline
+    Write-Host "(thinking...)" -ForegroundColor DarkGray
+
+    $reply = Send-Message $userInput
+
+    # Overwrite the "thinking..." line
+    $pos = $Host.UI.RawUI.CursorPosition
+    $pos.Y -= 1
+    $Host.UI.RawUI.CursorPosition = $pos
+    Write-Host ("  " + " " * 70)
+    $pos.Y = $Host.UI.RawUI.CursorPosition.Y - 1
+    $Host.UI.RawUI.CursorPosition = $pos
+
+    Write-Host "  AI   > " -ForegroundColor Green -NoNewline
+    Write-Host $reply
+    Write-Host ""
+}
+`.trim();
+
+    // Wrap in a .bat that writes the PS1 to %TEMP% and runs it
+    const bat = [
+      '@echo off',
+      'title SlyOS Chatbot',
+      'setlocal',
+      `set "PS1=%TEMP%\\slyos-chatbot-%RANDOM%.ps1"`,
+      '',
+      ':: Write PowerShell script to temp file',
+      `powershell -Command "$s = [System.IO.File]::ReadAllText('%~f0'); $start = $s.IndexOf('__PS1_START__') + 13; $end = $s.IndexOf('__PS1_END__'); [System.IO.File]::WriteAllText($env:PS1, $s.Substring($start, $end - $start), [System.Text.Encoding]::UTF8)"`,
+      '',
+      ':: Launch chatbot in a new PowerShell window',
+      `start "SlyOS Chatbot" powershell -NoExit -ExecutionPolicy Bypass -File "%PS1%"`,
+      'exit /b',
+      '',
+      '__PS1_START__',
+      psScript,
+      '__PS1_END__',
+    ].join('\r\n');
+
+    const blob = new Blob([bat], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'slyos-chatbot.bat';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   // Widget
   const widgetCode = `<!-- SlyOS AI Widget -->
@@ -248,13 +364,44 @@ ${kbId ? `
       {activeTab === 'terminal' && (
         <div className="space-y-6">
           <div className="backdrop-blur-xl bg-[#0A0A0A]/80 border border-[rgba(255,77,0,0.25)] rounded-2xl p-8">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#FF4D00] to-[#FF6B35] text-white flex items-center justify-center">
-                <Terminal className="w-6 h-6" />
+            <div className="flex items-center justify-between gap-3 mb-6 flex-wrap gap-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#FF4D00] to-[#FF6B35] text-white flex items-center justify-center">
+                  <Terminal className="w-6 h-6" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-[#EDEDED]">Instant AI Chatbot</h2>
+                  <p className="text-sm text-[#888888]">One command. Working chatbot in 60 seconds.</p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-xl font-bold text-[#EDEDED]">Instant AI Chatbot</h2>
-                <p className="text-sm text-[#888888]">One command. Working chatbot in 60 seconds.</p>
+              {/* OS toggle */}
+              <div className="flex items-center bg-[#050505] border border-[rgba(255,255,255,0.08)] rounded-xl p-1 gap-1">
+                <button
+                  onClick={() => setOs('windows')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                    os === 'windows'
+                      ? 'bg-[#FF4D00] text-white'
+                      : 'text-[#888888] hover:text-[#EDEDED]'
+                  }`}
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M3 5.557L10.333 4.5V11.5H3V5.557zM11.333 4.357L21 3v8.5H11.333V4.357zM3 12.5H10.333V19.5L3 18.443V12.5zM11.333 12.5H21V21L11.333 19.643V12.5z"/>
+                  </svg>
+                  Windows
+                </button>
+                <button
+                  onClick={() => setOs('unix')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                    os === 'unix'
+                      ? 'bg-[#FF4D00] text-white'
+                      : 'text-[#888888] hover:text-[#EDEDED]'
+                  }`}
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm-1 15v-4H7l5-8v4h4l-5 8z"/>
+                  </svg>
+                  Mac / Linux
+                </button>
               </div>
             </div>
 
@@ -266,36 +413,93 @@ ${kbId ? `
                     <Check className="w-4 h-4 text-[#4ade80]" />
                     Node.js installed (free, takes 2 min)
                   </p>
-                  <p className="text-sm text-[#888888] flex items-center gap-2">
-                    <Check className="w-4 h-4 text-[#4ade80]" />
-                    A terminal app (Terminal on Mac, PowerShell on Windows)
-                  </p>
+                  {os === 'windows' ? (
+                    <p className="text-sm text-[#888888] flex items-center gap-2">
+                      <Check className="w-4 h-4 text-[#4ade80]" />
+                      Windows 10/11 — PowerShell is already installed
+                    </p>
+                  ) : (
+                    <p className="text-sm text-[#888888] flex items-center gap-2">
+                      <Check className="w-4 h-4 text-[#4ade80]" />
+                      Terminal app (macOS Terminal, iTerm, or any Linux shell)
+                    </p>
+                  )}
                 </div>
               </div>
 
-              <div>
-                <p className="text-sm text-[#EDEDED] font-semibold mb-3">
-                  Open your terminal and paste this:
-                </p>
-                <div className="bg-[#050505] border border-[rgba(255,77,0,0.15)] rounded-xl p-4 font-mono text-xs text-[#4ade80] overflow-x-auto whitespace-pre-wrap leading-relaxed break-all">
-                  {oneLiner}
-                </div>
-              </div>
+              {os === 'windows' ? (
+                <>
+                  {/* Windows: Launch button first */}
+                  <div className="p-5 bg-[rgba(255,77,0,0.06)] border border-[rgba(255,77,0,0.2)] rounded-xl">
+                    <p className="text-sm font-semibold text-[#EDEDED] mb-1 flex items-center gap-2">
+                      <Zap className="w-4 h-4 text-[#FF4D00]" />
+                      One-click launch
+                    </p>
+                    <p className="text-xs text-[#888888] mb-4">
+                      Download the launcher — double-click it and PowerShell opens with the chatbot running automatically.
+                    </p>
+                    <Button
+                      className="w-full gap-2 h-12 bg-gradient-to-r from-[#FF4D00] to-[#FF6B35] hover:from-[#FF5C1A] hover:to-[#FF7A4A] text-white font-semibold text-base"
+                      onClick={downloadBatLauncher}
+                    >
+                      <Download className="w-5 h-5" /> Download slyos-chatbot.bat
+                    </Button>
+                    <p className="text-[11px] text-[#555555] mt-2 text-center">
+                      Save anywhere → double-click → chatbot starts in PowerShell
+                    </p>
+                  </div>
 
-              <Button
-                className="w-full gap-2 h-12 bg-gradient-to-r from-[#FF4D00] to-[#FF6B35] hover:from-[#FF5C1A] hover:to-[#FF7A4A] text-white font-semibold"
-                onClick={() => copyCode(oneLiner, 1)}
-              >
-                {copiedStep === 1 ? (
-                  <>
-                    <Check className="w-5 h-5" /> Copied to Clipboard!
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-5 h-5" /> Copy Command
-                  </>
-                )}
-              </Button>
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 h-px bg-[rgba(255,255,255,0.06)]" />
+                    <span className="text-xs text-[#555555]">or paste manually in PowerShell</span>
+                    <div className="flex-1 h-px bg-[rgba(255,255,255,0.06)]" />
+                  </div>
+
+                  <div>
+                    <p className="text-sm text-[#EDEDED] font-semibold mb-1">
+                      Open PowerShell and paste:
+                    </p>
+                    <p className="text-xs text-[#555555] mb-3">
+                      Press <kbd className="bg-[#1a1a1a] border border-[rgba(255,255,255,0.1)] px-1.5 py-0.5 rounded text-[#888888] font-mono">Win</kbd> + <kbd className="bg-[#1a1a1a] border border-[rgba(255,255,255,0.1)] px-1.5 py-0.5 rounded text-[#888888] font-mono">X</kbd> → Terminal (or PowerShell)
+                    </p>
+                    <div className="bg-[#050505] border border-[rgba(255,77,0,0.15)] rounded-xl p-4 font-mono text-xs text-[#4ade80] overflow-x-auto whitespace-pre-wrap leading-relaxed break-all">
+                      {psOneLiner}
+                    </div>
+                  </div>
+
+                  <Button
+                    className="w-full gap-2 h-10 bg-transparent border border-[rgba(255,255,255,0.1)] text-[#EDEDED] hover:bg-[rgba(255,255,255,0.05)] font-semibold"
+                    onClick={() => copyCode(psOneLiner, 1)}
+                  >
+                    {copiedStep === 1 ? (
+                      <><Check className="w-4 h-4 text-[#4ade80]" /> Copied!</>
+                    ) : (
+                      <><Copy className="w-4 h-4" /> Copy PowerShell Command</>
+                    )}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <p className="text-sm text-[#EDEDED] font-semibold mb-3">
+                      Open your terminal and paste this:
+                    </p>
+                    <div className="bg-[#050505] border border-[rgba(255,77,0,0.15)] rounded-xl p-4 font-mono text-xs text-[#4ade80] overflow-x-auto whitespace-pre-wrap leading-relaxed break-all">
+                      {oneLiner}
+                    </div>
+                  </div>
+                  <Button
+                    className="w-full gap-2 h-12 bg-gradient-to-r from-[#FF4D00] to-[#FF6B35] hover:from-[#FF5C1A] hover:to-[#FF7A4A] text-white font-semibold"
+                    onClick={() => copyCode(oneLiner, 1)}
+                  >
+                    {copiedStep === 1 ? (
+                      <><Check className="w-5 h-5" /> Copied to Clipboard!</>
+                    ) : (
+                      <><Copy className="w-5 h-5" /> Copy Command</>
+                    )}
+                  </Button>
+                </>
+              )}
             </div>
           </div>
 
