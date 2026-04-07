@@ -242,28 +242,28 @@ interface OfflineIndex {
 const modelMap: Record<string, ModelInfo> = {
   // LLM models (1B+)
   'quantum-1.7b': {
-    hfModel: 'HuggingFaceTB/SmolLM2-1.7B-Instruct',
+    hfModel: 'onnx-community/SmolLM2-1.7B-Instruct',
     task: 'text-generation',
     category: 'llm',
     sizesMB: { q4: 900, q8: 1700, fp16: 3400, fp32: 6800 },
     minRAM_MB: { q4: 2048, q8: 3072, fp16: 5120, fp32: 8192 },
   },
   'quantum-3b': {
-    hfModel: 'Qwen/Qwen2.5-3B-Instruct',
+    hfModel: 'onnx-community/Qwen2.5-3B-Instruct',
     task: 'text-generation',
     category: 'llm',
     sizesMB: { q4: 1600, q8: 3200, fp16: 6400, fp32: 12800 },
     minRAM_MB: { q4: 3072, q8: 5120, fp16: 8192, fp32: 16384 },
   },
   'quantum-code-3b': {
-    hfModel: 'Qwen/Qwen2.5-Coder-3B-Instruct',
+    hfModel: 'onnx-community/Qwen2.5-Coder-3B-Instruct',
     task: 'text-generation',
     category: 'llm',
     sizesMB: { q4: 1600, q8: 3200, fp16: 6400, fp32: 12800 },
     minRAM_MB: { q4: 3072, q8: 5120, fp16: 8192, fp32: 16384 },
   },
   'quantum-8b': {
-    hfModel: 'Qwen/Qwen2.5-7B-Instruct',
+    hfModel: 'onnx-community/Qwen2.5-7B-Instruct',
     task: 'text-generation',
     category: 'llm',
     sizesMB: { q4: 4200, q8: 8400, fp16: 16800, fp32: 33600 },

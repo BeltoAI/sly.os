@@ -8,28 +8,28 @@ if (env.backends?.onnx?.wasm) {
 const modelMap = {
     // LLM models (1B+)
     'quantum-1.7b': {
-        hfModel: 'HuggingFaceTB/SmolLM2-1.7B-Instruct',
+        hfModel: 'onnx-community/SmolLM2-1.7B-Instruct',
         task: 'text-generation',
         category: 'llm',
         sizesMB: { q4: 900, q8: 1700, fp16: 3400, fp32: 6800 },
         minRAM_MB: { q4: 2048, q8: 3072, fp16: 5120, fp32: 8192 },
     },
     'quantum-3b': {
-        hfModel: 'Qwen/Qwen2.5-3B-Instruct',
+        hfModel: 'onnx-community/Qwen2.5-3B-Instruct',
         task: 'text-generation',
         category: 'llm',
         sizesMB: { q4: 1600, q8: 3200, fp16: 6400, fp32: 12800 },
         minRAM_MB: { q4: 3072, q8: 5120, fp16: 8192, fp32: 16384 },
     },
     'quantum-code-3b': {
-        hfModel: 'Qwen/Qwen2.5-Coder-3B-Instruct',
+        hfModel: 'onnx-community/Qwen2.5-Coder-3B-Instruct',
         task: 'text-generation',
         category: 'llm',
         sizesMB: { q4: 1600, q8: 3200, fp16: 6400, fp32: 12800 },
         minRAM_MB: { q4: 3072, q8: 5120, fp16: 8192, fp32: 16384 },
     },
     'quantum-8b': {
-        hfModel: 'Qwen/Qwen2.5-7B-Instruct',
+        hfModel: 'onnx-community/Qwen2.5-7B-Instruct',
         task: 'text-generation',
         category: 'llm',
         sizesMB: { q4: 4200, q8: 8400, fp16: 16800, fp32: 33600 },
@@ -968,6 +968,28 @@ class SlyOS {
             const totalMs = Date.now() - startTime;
             const tokensGenerated = response.split(/\s+/).filter(Boolean).length;
             this.emitProgress('ready', 100, `Streamed ${tokensGenerated} tokens in ${(totalMs / 1000).toFixed(1)}s`);
+            this.emitEvent('inference_complete', { modelId, latencyMs: totalMs, tokensGenerated });
+            // Batch telemetry (device intelligence)
+            this.recordTelemetry({
+                latency_ms: totalMs,
+                tokens_generated: tokensGenerated,
+                success: true,
+                model_id: modelId,
+                timestamp: Date.now(),
+            });
+            // Legacy telemetry — updates analytics_daily for dashboard counts
+            if (this.token) {
+                await axios.post(`${this.apiUrl}/api/telemetry`, {
+                    device_id: this.deviceId,
+                    event_type: 'inference',
+                    model_id: modelId,
+                    latency_ms: totalMs,
+                    tokens_generated: tokensGenerated,
+                    success: true,
+                }, {
+                    headers: { Authorization: `Bearer ${this.token}` },
+                }).catch(() => { });
+            }
             return { text: response, firstTokenMs: firstTokenTime, totalMs, tokensGenerated };
         }
         catch (error) {

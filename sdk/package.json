@@ -1,6 +1,6 @@
 {
   "name": "@beltoinc/slyos-sdk",
-  "version": "1.5.5",
+  "version": "1.5.6",
   "description": "SlyOS - On-Device AI SDK for Web and Node.js",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
