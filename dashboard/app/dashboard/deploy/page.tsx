@@ -67,56 +67,70 @@ export default function DeployPage() {
   const psOneLiner = `$v = node --version 2>&1; if ($LASTEXITCODE -eq 0) { Write-Host "✓ Node.js $v is installed — you're ready to run the chatbot!" -ForegroundColor Green } else { Write-Host "✗ Node.js not found. Download it from https://nodejs.org and re-run." -ForegroundColor Red }`;
 
   const downloadBatLauncher = () => {
-    // ── app.mjs — real local inference via @beltoinc/slyos-sdk ──────────────
-    // Written using string concatenation only (no template literals / backticks)
-    // so it can be safely base64-encoded and decoded by PowerShell without
-    // PowerShell ever parsing the JS syntax.
+    // ── app.mjs — cloud API chatbot (no local model download, starts instantly) ──
+    // Uses Node.js built-in fetch to call SlyOS API directly.
+    // Written as string array so it can be safely base64-encoded for PowerShell.
     const appMjsLines = [
       "import 'dotenv/config';",
       "import readline from 'readline';",
-      "import SlyOS from '@beltoinc/slyos-sdk';",
+      "",
+      "const API_KEY = process.env.SLYOS_API_KEY;",
+      "const MODEL   = process.env.SLYOS_MODEL || 'quantum-3b';",
+      "const BASE    = (process.env.SLYOS_SERVER || 'https://api.slyos.world').replace(/\\/+$/, '');",
+      "const SESSION = Math.random().toString(36).slice(2) + Date.now().toString(36);",
       "",
       "const C = { r:'\\x1b[0m', b:'\\x1b[1m', c:'\\x1b[36m', g:'\\x1b[32m', e:'\\x1b[31m', m:'\\x1b[35m', d:'\\x1b[2m' };",
-      "const sdk = new SlyOS({",
-      "  apiKey: process.env.SLYOS_API_KEY,",
-      "  onProgress: e => process.stdout.write('\\r  [' + e.progress + '%] ' + e.message.padEnd(50))",
-      "});",
       "const rl = readline.createInterface({ input: process.stdin, output: process.stdout });",
+      "",
+      "async function callAPI(message) {",
+      "  const url = BASE + '/api/widget/' + API_KEY + '/generate';",
+      "  const res = await fetch(url, {",
+      "    method: 'POST',",
+      "    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API_KEY },",
+      "    body: JSON.stringify({ message: message, model: MODEL, sessionId: SESSION })",
+      "  });",
+      "  if (!res.ok) {",
+      "    const txt = await res.text().catch(() => res.statusText);",
+      "    throw new Error('HTTP ' + res.status + ' — ' + txt.slice(0, 200));",
+      "  }",
+      "  const data = await res.json();",
+      "  return data.response || data.text || data.message || data.content || data.reply || JSON.stringify(data);",
+      "}",
       "",
       "async function main() {",
       "  console.clear();",
-      "  console.log(C.b + C.c + '\\n  SlyOS AI Chatbot' + C.r);",
-      "  console.log(C.d + '  Model: ' + process.env.SLYOS_MODEL + '   (type exit to quit)' + C.r + '\\n');",
+      "  console.log(C.b + C.c + '\\n  ╔══════════════════════════════╗');",
+      "  console.log('  ║     SlyOS AI Chatbot          ║');",
+      "  console.log('  ╚══════════════════════════════╝' + C.r + '\\n');",
+      "  console.log(C.d + '  Model: ' + MODEL + '   |   type exit to quit' + C.r + '\\n');",
+      "  process.stdout.write('  Connecting to SlyOS...');",
       "  try {",
-      "    process.stdout.write('  Connecting to SlyOS...');",
-      "    await sdk.initialize();",
-      "    process.stdout.write('\\r  Loading model — first run downloads ~900MB...              ');",
-      "    await sdk.loadModel(process.env.SLYOS_MODEL);",
-      "    console.log('\\r  ' + C.g + 'Ready! Start chatting.' + C.r + '                              \\n');",
+      "    const ping = await callAPI('Hello');",
+      "    console.log('\\r  ' + C.g + '✓ Connected! Start chatting below.' + C.r + '                    \\n');",
       "  } catch(e) {",
-      "    console.log('\\n  ' + C.e + 'Setup failed: ' + e.message + C.r);",
-      "    console.log('  Verify your API key and internet connection.');",
+      "    console.log('\\n  ' + C.e + '✗ Connection failed: ' + e.message + C.r);",
+      "    console.log('  → Check your API key and internet connection, then re-run.');",
       "    process.exit(1);",
       "  }",
-      "  const ask = () => rl.question('  ' + C.c + 'You: ' + C.r, async function(input) {",
-      "    if (!input.trim()) return ask();",
-      "    if (/^(exit|quit|bye)$/i.test(input.trim())) { console.log('\\n  Goodbye!\\n'); process.exit(0); }",
-      "    process.stdout.write('  ' + C.m + 'AI:  ' + C.r);",
+      "  const ask = () => rl.question('  ' + C.c + 'You: ' + C.r, async function(raw) {",
+      "    var input = raw.trim();",
+      "    if (!input) return ask();",
+      "    if (/^(exit|quit|bye|q)$/i.test(input)) { console.log('\\n  Goodbye!\\n'); process.exit(0); }",
+      "    process.stdout.write('\\n  ' + C.m + 'AI:  ' + C.r);",
       "    try {",
-      "      var r = await sdk.generateStream(",
-      "        process.env.SLYOS_MODEL,",
-      "        [{ role: 'user', content: input.trim() }],",
-      "        { temperature: 0.7, maxTokens: 300, onToken: function(t) { process.stdout.write(t); } }",
-      "      );",
-      "      if (r && !r.streamed && r.text) process.stdout.write(r.text);",
-      "    } catch(e) { process.stdout.write(C.e + 'Error: ' + e.message + C.r); }",
-      "    console.log('\\n');",
+      "      var reply = await callAPI(input);",
+      "      console.log(reply);",
+      "    } catch(e) {",
+      "      console.log(C.e + 'Error: ' + e.message + C.r);",
+      "    }",
+      "    console.log('');",
       "    ask();",
       "  });",
       "  process.on('SIGINT', function() { console.log('\\n  Goodbye!\\n'); process.exit(0); });",
       "  ask();",
       "}",
-      "main().catch(function(e) { console.error('  ' + e.message); process.exit(1); });",
+      "",
+      "main().catch(function(e) { console.error('\\n  ' + C.e + 'Fatal: ' + e.message + C.r); process.exit(1); });",
     ];
     const appMjsContent = appMjsLines.join('\n');
 
@@ -138,32 +152,26 @@ export default function DeployPage() {
     }
 
     // ── PowerShell setup script ──────────────────────────────────────────────
-    // All string values are already interpolated here; no PS variable substitution.
     const psScript = [
       '$ErrorActionPreference = "Continue"',
       '$dir = Join-Path $env:USERPROFILE "Desktop\\slyos-chatbot"',
       'Write-Host ""',
       'Write-Host "  SlyOS Chatbot Setup" -ForegroundColor Cyan',
-      'try { $nv = (& node --version 2>&1); Write-Host ("  Node.js: " + $nv) -ForegroundColor DarkGray }',
+      'try { $nv = (& node --version 2>&1); Write-Host ("  Node.js " + $nv + " detected") -ForegroundColor DarkGray }',
       'catch { Write-Host "  Node.js not found — install from https://nodejs.org" -ForegroundColor Red; Read-Host "Press Enter to exit"; exit 1 }',
-      'if (Test-Path $dir) { Remove-Item $dir -Recurse -Force }',
-      'New-Item -ItemType Directory -Path $dir -Force | Out-Null',
+      'if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }',
       'Set-Location $dir',
-      'Write-Host ("  Directory: " + $dir) -ForegroundColor DarkGray',
-      // package.json — safe single-quoted PS string, no special chars
+      'Write-Host ("  Folder: " + $dir) -ForegroundColor DarkGray',
       '[System.IO.File]::WriteAllText((Join-Path $dir "package.json"), \'{"name":"slyos-chatbot","version":"1.0.0","type":"module"}\', [System.Text.Encoding]::UTF8)',
-      // .env — double-quoted PS string, backtick-n for newlines, literal values only
       `[System.IO.File]::WriteAllText((Join-Path $dir ".env"), "SLYOS_API_KEY=${apiKey}\`nSLYOS_MODEL=${modelId}\`nSLYOS_SERVER=https://api.slyos.world${kbId ? `\`nSLYOS_KB_ID=${kbId}` : ''}", [System.Text.Encoding]::UTF8)`,
-      // app.mjs — decoded from base64, PS never parses JS
       `$b64 = "${b64App}"`,
       '$appBytes = [System.Convert]::FromBase64String($b64)',
       '[System.IO.File]::WriteAllBytes((Join-Path $dir "app.mjs"), $appBytes)',
-      // npm install
-      'Write-Host ""',
-      'Write-Host "  Installing SDK (~60 seconds on first run)..." -ForegroundColor Cyan',
-      'if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { Write-Host "  npm not found — reinstall Node.js" -ForegroundColor Red; Read-Host "Press Enter"; exit 1 }',
-      '& npm install @beltoinc/slyos-sdk dotenv --legacy-peer-deps 2>&1 | ForEach-Object { if ($_ -notmatch "^npm warn") { Write-Host ("  " + $_) -ForegroundColor DarkGray } }',
-      'Write-Host "  SDK installed!" -ForegroundColor Green',
+      'if (-not (Test-Path (Join-Path $dir "node_modules\\dotenv"))) {',
+      '  Write-Host "  Installing dotenv..." -ForegroundColor Cyan',
+      '  & npm install dotenv --save 2>&1 | Out-Null',
+      '  Write-Host "  Ready!" -ForegroundColor Green',
+      '}',
       'Write-Host ""',
       '& node app.mjs',
     ].join('\n');
@@ -451,7 +459,7 @@ ${kbId ? `
                       One-click launch
                     </p>
                     <p className="text-xs text-[#888888] mb-4">
-                      Download the launcher — double-click it and PowerShell opens with the chatbot running automatically.
+                      Download the launcher — double-click it and PowerShell opens. Chatbot connects instantly via cloud API, no model download needed.
                     </p>
                     <Button
                       className="w-full gap-2 h-12 bg-gradient-to-r from-[#FF4D00] to-[#FF6B35] hover:from-[#FF5C1A] hover:to-[#FF7A4A] text-white font-semibold text-base"
@@ -460,7 +468,7 @@ ${kbId ? `
                       <Download className="w-5 h-5" /> Download slyos-chatbot.bat
                     </Button>
                     <p className="text-[11px] text-[#555555] mt-2 text-center">
-                      Save anywhere → double-click → chatbot starts in PowerShell
+                      Save anywhere → double-click → chatbot starts instantly in PowerShell
                     </p>
                   </div>
 
