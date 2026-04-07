@@ -67,99 +67,122 @@ export default function DeployPage() {
   const psOneLiner = `$k="${apiKey}"; $m="${modelId}"; $r=irm -Method POST "https://api.slyos.world/api/widget/$k/generate" -ContentType "application/json" -Body (ConvertTo-Json @{message="Hello";model=$m;sessionId=[guid]::NewGuid()}); Write-Host "Response: $($r.response)" -ForegroundColor Green`;
 
   const downloadBatLauncher = () => {
-    // Node.js chatbot app — uses @beltoinc/slyos-sdk for real local model inference
-    const appMjs = [
-      'import "dotenv/config";',
-      'import readline from "readline";',
-      'import SlyOS from "@beltoinc/slyos-sdk";',
-      '',
-      'const C={r:"\\x1b[0m",c:"\\x1b[36m",g:"\\x1b[32m",e:"\\x1b[31m",b:"\\x1b[1m",d:"\\x1b[2m"};',
-      'const sdk = new SlyOS({',
-      '  apiKey: process.env.SLYOS_API_KEY,',
-      '  onProgress: e => process.stdout.write("\\r  " + e.message.padEnd(60))',
-      '});',
-      'const rl = readline.createInterface({ input: process.stdin, output: process.stdout });',
-      '',
-      'async function main() {',
-      '  console.clear();',
-      '  console.log(C.b + C.c + "  SlyOS AI Chatbot" + C.r);',
-      '  console.log(C.d + "  Model: " + process.env.SLYOS_MODEL + "   type exit to quit" + C.r + "\\n");',
-      '  try {',
-      '    process.stdout.write("  Connecting to SlyOS...");',
-      '    await sdk.initialize();',
-      '    process.stdout.write("\\r  Loading model (first run downloads ~900MB)...              ");',
-      '    await sdk.loadModel(process.env.SLYOS_MODEL);',
-      '    console.log("\\r  " + C.g + "Ready! Start chatting below." + C.r + "                              \\n");',
-      '  } catch(e) {',
-      '    console.log("\\n  " + C.e + "Setup failed: " + e.message + C.r);',
-      '    console.log("  Check your API key and internet connection.");',
-      '    process.exit(1);',
-      '  }',
-      '  const ask = () => rl.question("  " + C.c + "You: " + C.r, async input => {',
-      '    if (!input.trim()) return ask();',
-      '    if (/^(exit|quit|bye)$/i.test(input.trim())) { console.log("\\n  Goodbye!\\n"); process.exit(0); }',
-      '    process.stdout.write("  " + C.g + "AI:  " + C.r);',
-      '    try {',
-      '      const r = await sdk.generateStream(',
-      '        process.env.SLYOS_MODEL,',
-      '        [{ role: "user", content: input.trim() }],',
-      '        { temperature: 0.7, maxTokens: 200, onToken: t => process.stdout.write(t) }',
-      '      );',
-      '      if (r && !r.streamed && r.text) process.stdout.write(r.text);',
-      '    } catch(e) { process.stdout.write(C.e + "Error: " + e.message + C.r); }',
-      '    console.log("\\n"); ask();',
-      '  });',
-      '  process.on("SIGINT", () => { console.log("\\n  Goodbye!\\n"); process.exit(0); });',
-      '  ask();',
-      '}',
-      'main().catch(e => { console.error("  " + e.message); process.exit(1); });',
-    ].join('\n');
+    // ── app.mjs — real local inference via @beltoinc/slyos-sdk ──────────────
+    // Written using string concatenation only (no template literals / backticks)
+    // so it can be safely base64-encoded and decoded by PowerShell without
+    // PowerShell ever parsing the JS syntax.
+    const appMjsLines = [
+      "import 'dotenv/config';",
+      "import readline from 'readline';",
+      "import SlyOS from '@beltoinc/slyos-sdk';",
+      "",
+      "const C = { r:'\\x1b[0m', b:'\\x1b[1m', c:'\\x1b[36m', g:'\\x1b[32m', e:'\\x1b[31m', m:'\\x1b[35m', d:'\\x1b[2m' };",
+      "const sdk = new SlyOS({",
+      "  apiKey: process.env.SLYOS_API_KEY,",
+      "  onProgress: e => process.stdout.write('\\r  [' + e.progress + '%] ' + e.message.padEnd(50))",
+      "});",
+      "const rl = readline.createInterface({ input: process.stdin, output: process.stdout });",
+      "",
+      "async function main() {",
+      "  console.clear();",
+      "  console.log(C.b + C.c + '\\n  SlyOS AI Chatbot' + C.r);",
+      "  console.log(C.d + '  Model: ' + process.env.SLYOS_MODEL + '   (type exit to quit)' + C.r + '\\n');",
+      "  try {",
+      "    process.stdout.write('  Connecting to SlyOS...');",
+      "    await sdk.initialize();",
+      "    process.stdout.write('\\r  Loading model — first run downloads ~900MB...              ');",
+      "    await sdk.loadModel(process.env.SLYOS_MODEL);",
+      "    console.log('\\r  ' + C.g + 'Ready! Start chatting.' + C.r + '                              \\n');",
+      "  } catch(e) {",
+      "    console.log('\\n  ' + C.e + 'Setup failed: ' + e.message + C.r);",
+      "    console.log('  Verify your API key and internet connection.');",
+      "    process.exit(1);",
+      "  }",
+      "  const ask = () => rl.question('  ' + C.c + 'You: ' + C.r, async function(input) {",
+      "    if (!input.trim()) return ask();",
+      "    if (/^(exit|quit|bye)$/i.test(input.trim())) { console.log('\\n  Goodbye!\\n'); process.exit(0); }",
+      "    process.stdout.write('  ' + C.m + 'AI:  ' + C.r);",
+      "    try {",
+      "      var r = await sdk.generateStream(",
+      "        process.env.SLYOS_MODEL,",
+      "        [{ role: 'user', content: input.trim() }],",
+      "        { temperature: 0.7, maxTokens: 300, onToken: function(t) { process.stdout.write(t); } }",
+      "      );",
+      "      if (r && !r.streamed && r.text) process.stdout.write(r.text);",
+      "    } catch(e) { process.stdout.write(C.e + 'Error: ' + e.message + C.r); }",
+      "    console.log('\\n');",
+      "    ask();",
+      "  });",
+      "  process.on('SIGINT', function() { console.log('\\n  Goodbye!\\n'); process.exit(0); });",
+      "  ask();",
+      "}",
+      "main().catch(function(e) { console.error('  ' + e.message); process.exit(1); });",
+    ];
+    const appMjsContent = appMjsLines.join('\n');
 
-    // Full PowerShell setup script — values interpolated, no PS variable substitution needed
-    const psSetup = [
-      `$ErrorActionPreference = "Stop"`,
-      `$dir = Join-Path $env:USERPROFILE "Desktop\\slyos-chatbot"`,
-      `Write-Host ""`,
-      `Write-Host "  SlyOS Chatbot Setup" -ForegroundColor Cyan`,
-      `try { $nv = node --version 2>&1; Write-Host "  Node.js: $nv" -ForegroundColor DarkGray }`,
-      `catch { Write-Host "  Node.js not found! Install from https://nodejs.org" -ForegroundColor Red; pause; exit 1 }`,
-      `if (Test-Path $dir) { Remove-Item $dir -Recurse -Force }`,
-      `New-Item -ItemType Directory -Path $dir -Force | Out-Null`,
-      `Set-Location $dir`,
-      `Write-Host "  Directory: $dir" -ForegroundColor DarkGray`,
-      // package.json
-      `'{"name":"slyos-chatbot","version":"1.0.0","type":"module"}' | Set-Content -Encoding UTF8 "package.json"`,
-      // .env
-      `"SLYOS_API_KEY=${apiKey}\`nSLYOS_MODEL=${modelId}\`nSLYOS_SERVER=https://api.slyos.world${kbId ? `\`nSLYOS_KB_ID=${kbId}` : ''}" | Set-Content -Encoding UTF8 ".env"`,
-      // app.mjs — write line-by-line to avoid quoting nightmares
-      `$lines = @(`,
-      ...appMjs.split('\n').map(line => `  ${JSON.stringify(line)}`),
-      `)`,
-      `$lines -join "\`n" | Set-Content -Encoding UTF8 "app.mjs"`,
-      // install
-      `Write-Host ""`,
-      `Write-Host "  Installing SDK (30-60 seconds)..." -ForegroundColor Cyan`,
-      `$npm = Get-Command npm -ErrorAction SilentlyContinue`,
-      `if (-not $npm) { Write-Host "  npm not found — is Node.js installed?" -ForegroundColor Red; pause; exit 1 }`,
-      `& npm install @beltoinc/slyos-sdk dotenv --legacy-peer-deps --silent 2>&1 | ForEach-Object { Write-Host "  $_" -ForegroundColor DarkGray }`,
-      `Write-Host "  Dependencies installed!" -ForegroundColor Green`,
-      `Write-Host ""`,
-      `& node app.mjs`,
-    ].join('\n');
-
-    // Encode to UTF-16LE base64 for powershell -EncodedCommand (no escaping needed)
-    const bytes: number[] = [];
-    for (let i = 0; i < psSetup.length; i++) {
-      const code = psSetup.charCodeAt(i);
-      bytes.push(code & 0xff, (code >> 8) & 0xff);
+    // Base64-encode app.mjs as UTF-8 bytes (PowerShell decodes → WriteAllBytes → no PS parsing)
+    const utf8Bytes: number[] = [];
+    for (let i = 0; i < appMjsContent.length; i++) {
+      const c = appMjsContent.charCodeAt(i);
+      if (c < 128) { utf8Bytes.push(c); }
+      else if (c < 2048) { utf8Bytes.push((c >> 6) | 192, (c & 63) | 128); }
+      else { utf8Bytes.push((c >> 12) | 224, ((c >> 6) & 63) | 128, (c & 63) | 128); }
     }
-    const encoded = btoa(bytes.map(b => String.fromCharCode(b)).join(''));
+    let b64App = '';
+    const b64Chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    for (let i = 0; i < utf8Bytes.length; i += 3) {
+      const b0 = utf8Bytes[i], b1 = utf8Bytes[i+1] ?? 0, b2 = utf8Bytes[i+2] ?? 0;
+      b64App += b64Chars[b0 >> 2] + b64Chars[((b0 & 3) << 4) | (b1 >> 4)]
+             + (i+1 < utf8Bytes.length ? b64Chars[((b1 & 15) << 2) | (b2 >> 6)] : '=')
+             + (i+2 < utf8Bytes.length ? b64Chars[b2 & 63] : '=');
+    }
 
-    const bat = [
-      '@echo off',
-      'title SlyOS Chatbot',
-      `powershell -NoExit -ExecutionPolicy Bypass -EncodedCommand ${encoded}`,
-    ].join('\r\n');
+    // ── PowerShell setup script ──────────────────────────────────────────────
+    // All string values are already interpolated here; no PS variable substitution.
+    const psScript = [
+      '$ErrorActionPreference = "Continue"',
+      '$dir = Join-Path $env:USERPROFILE "Desktop\\slyos-chatbot"',
+      'Write-Host ""',
+      'Write-Host "  SlyOS Chatbot Setup" -ForegroundColor Cyan',
+      'try { $nv = (& node --version 2>&1); Write-Host ("  Node.js: " + $nv) -ForegroundColor DarkGray }',
+      'catch { Write-Host "  Node.js not found — install from https://nodejs.org" -ForegroundColor Red; Read-Host "Press Enter to exit"; exit 1 }',
+      'if (Test-Path $dir) { Remove-Item $dir -Recurse -Force }',
+      'New-Item -ItemType Directory -Path $dir -Force | Out-Null',
+      'Set-Location $dir',
+      'Write-Host ("  Directory: " + $dir) -ForegroundColor DarkGray',
+      // package.json — safe single-quoted PS string, no special chars
+      '[System.IO.File]::WriteAllText((Join-Path $dir "package.json"), \'{"name":"slyos-chatbot","version":"1.0.0","type":"module"}\', [System.Text.Encoding]::UTF8)',
+      // .env — double-quoted PS string, backtick-n for newlines, literal values only
+      `[System.IO.File]::WriteAllText((Join-Path $dir ".env"), "SLYOS_API_KEY=${apiKey}\`nSLYOS_MODEL=${modelId}\`nSLYOS_SERVER=https://api.slyos.world${kbId ? `\`nSLYOS_KB_ID=${kbId}` : ''}", [System.Text.Encoding]::UTF8)`,
+      // app.mjs — decoded from base64, PS never parses JS
+      `$b64 = "${b64App}"`,
+      '$appBytes = [System.Convert]::FromBase64String($b64)',
+      '[System.IO.File]::WriteAllBytes((Join-Path $dir "app.mjs"), $appBytes)',
+      // npm install
+      'Write-Host ""',
+      'Write-Host "  Installing SDK (~60 seconds on first run)..." -ForegroundColor Cyan',
+      'if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { Write-Host "  npm not found — reinstall Node.js" -ForegroundColor Red; Read-Host "Press Enter"; exit 1 }',
+      '& npm install @beltoinc/slyos-sdk dotenv --legacy-peer-deps 2>&1 | ForEach-Object { if ($_ -notmatch "^npm warn") { Write-Host ("  " + $_) -ForegroundColor DarkGray } }',
+      'Write-Host "  SDK installed!" -ForegroundColor Green',
+      'Write-Host ""',
+      '& node app.mjs',
+    ].join('\n');
+
+    // Encode entire PS script as UTF-16LE base64 for -EncodedCommand
+    const psBytes: number[] = [];
+    for (let i = 0; i < psScript.length; i++) {
+      const c = psScript.charCodeAt(i);
+      psBytes.push(c & 0xff, (c >> 8) & 0xff);
+    }
+    let encodedPS = '';
+    for (let i = 0; i < psBytes.length; i += 3) {
+      const b0 = psBytes[i], b1 = psBytes[i+1] ?? 0, b2 = psBytes[i+2] ?? 0;
+      encodedPS += b64Chars[b0 >> 2] + b64Chars[((b0 & 3) << 4) | (b1 >> 4)]
+                + (i+1 < psBytes.length ? b64Chars[((b1 & 15) << 2) | (b2 >> 6)] : '=')
+                + (i+2 < psBytes.length ? b64Chars[b2 & 63] : '=');
+    }
+
+    const bat = '@echo off\r\ntitle SlyOS Chatbot\r\npowershell -NoExit -ExecutionPolicy Bypass -EncodedCommand ' + encodedPS + '\r\n';
 
     const blob = new Blob([bat], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
