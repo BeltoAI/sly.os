@@ -63,110 +63,102 @@ export default function DeployPage() {
   // Terminal — Unix (curl | bash)
   const oneLiner = `curl -sL https://raw.githubusercontent.com/BeltoAI/sly.os/master/sdk/create-chatbot.sh | bash -s -- --api-key ${apiKey} --model ${modelId}${kbId ? ` --kb-id ${kbId}` : ''}`;
 
-  // Terminal — Windows PowerShell (self-contained, no remote fetch)
-  const psOneLiner = `$k='${apiKey}';$m='${modelId}';$s=[guid]::NewGuid();while($true){Write-Host "You> " -n -f Cyan;$i=Read-Host;if($i-match'^exit$'){break};$r=irm -Method POST -Uri "https://api.slyos.world/api/widget/$k/generate" -ContentType 'application/json' -Body ('{\"message\":\"'+$i+'\",\"model\":\"'+$m+'\",\"sessionId\":\"'+$s+'\"}');Write-Host "AI> $($r.response)" -f Green;Write-Host ""}`;
+  // Terminal — Windows PowerShell quick connectivity test
+  const psOneLiner = `$k="${apiKey}"; $m="${modelId}"; $r=irm -Method POST "https://api.slyos.world/api/widget/$k/generate" -ContentType "application/json" -Body (ConvertTo-Json @{message="Hello";model=$m;sessionId=[guid]::NewGuid()}); Write-Host "Response: $($r.response)" -ForegroundColor Green`;
 
   const downloadBatLauncher = () => {
-    // Full self-contained PowerShell chatbot — no remote fetch needed
-    const psScript = `
-$ApiKey  = '${apiKey}'
-$Model   = '${modelId}'${kbId ? `\n$KbId    = '${kbId}'` : ''}
-$ApiBase = 'https://api.slyos.world'
-$Session = [System.Guid]::NewGuid().ToString()
+    // Node.js chatbot app — uses @beltoinc/slyos-sdk for real local model inference
+    const appMjs = [
+      'import "dotenv/config";',
+      'import readline from "readline";',
+      'import SlyOS from "@beltoinc/slyos-sdk";',
+      '',
+      'const C={r:"\\x1b[0m",c:"\\x1b[36m",g:"\\x1b[32m",e:"\\x1b[31m",b:"\\x1b[1m",d:"\\x1b[2m"};',
+      'const sdk = new SlyOS({',
+      '  apiKey: process.env.SLYOS_API_KEY,',
+      '  onProgress: e => process.stdout.write("\\r  " + e.message.padEnd(60))',
+      '});',
+      'const rl = readline.createInterface({ input: process.stdin, output: process.stdout });',
+      '',
+      'async function main() {',
+      '  console.clear();',
+      '  console.log(C.b + C.c + "  SlyOS AI Chatbot" + C.r);',
+      '  console.log(C.d + "  Model: " + process.env.SLYOS_MODEL + "   type exit to quit" + C.r + "\\n");',
+      '  try {',
+      '    process.stdout.write("  Connecting to SlyOS...");',
+      '    await sdk.initialize();',
+      '    process.stdout.write("\\r  Loading model (first run downloads ~900MB)...              ");',
+      '    await sdk.loadModel(process.env.SLYOS_MODEL);',
+      '    console.log("\\r  " + C.g + "Ready! Start chatting below." + C.r + "                              \\n");',
+      '  } catch(e) {',
+      '    console.log("\\n  " + C.e + "Setup failed: " + e.message + C.r);',
+      '    console.log("  Check your API key and internet connection.");',
+      '    process.exit(1);',
+      '  }',
+      '  const ask = () => rl.question("  " + C.c + "You: " + C.r, async input => {',
+      '    if (!input.trim()) return ask();',
+      '    if (/^(exit|quit|bye)$/i.test(input.trim())) { console.log("\\n  Goodbye!\\n"); process.exit(0); }',
+      '    process.stdout.write("  " + C.g + "AI:  " + C.r);',
+      '    try {',
+      '      const r = await sdk.generateStream(',
+      '        process.env.SLYOS_MODEL,',
+      '        [{ role: "user", content: input.trim() }],',
+      '        { temperature: 0.7, maxTokens: 200, onToken: t => process.stdout.write(t) }',
+      '      );',
+      '      if (r && !r.streamed && r.text) process.stdout.write(r.text);',
+      '    } catch(e) { process.stdout.write(C.e + "Error: " + e.message + C.r); }',
+      '    console.log("\\n"); ask();',
+      '  });',
+      '  process.on("SIGINT", () => { console.log("\\n  Goodbye!\\n"); process.exit(0); });',
+      '  ask();',
+      '}',
+      'main().catch(e => { console.error("  " + e.message); process.exit(1); });',
+    ].join('\n');
 
-function Write-Banner {
-    Clear-Host
-    Write-Host ""
-    Write-Host "  ███████╗██╗  ██╗   ██╗ ██████╗ ███████╗" -ForegroundColor Red
-    Write-Host "  ██╔════╝██║  ╚██╗ ██╔╝██╔═══██╗██╔════╝" -ForegroundColor Red
-    Write-Host "  ███████╗██║   ╚████╔╝ ██║   ██║███████╗" -ForegroundColor Red
-    Write-Host "  ╚════██║██║    ╚██╔╝  ██║   ██║╚════██║" -ForegroundColor Red
-    Write-Host "  ███████║███████╗██║   ╚██████╔╝███████║" -ForegroundColor Red
-    Write-Host "  ╚══════╝╚══════╝╚═╝    ╚═════╝ ╚══════╝" -ForegroundColor Red
-    Write-Host ""
-    Write-Host "  Model  : $Model" -ForegroundColor DarkGray
-    Write-Host "  API    : $ApiBase" -ForegroundColor DarkGray${kbId ? `\n    Write-Host "  KB     : $KbId" -ForegroundColor DarkGray` : ''}
-    Write-Host "  Session: $Session" -ForegroundColor DarkGray
-    Write-Host ""
-    Write-Host "  Type your message and press Enter. Type 'exit' to quit." -ForegroundColor Gray
-    Write-Host ("  " + "─" * 50) -ForegroundColor DarkGray
-    Write-Host ""
-}
+    // Full PowerShell setup script — values interpolated, no PS variable substitution needed
+    const psSetup = [
+      `$ErrorActionPreference = "Stop"`,
+      `$dir = Join-Path $env:USERPROFILE "Desktop\\slyos-chatbot"`,
+      `Write-Host ""`,
+      `Write-Host "  SlyOS Chatbot Setup" -ForegroundColor Cyan`,
+      `try { $nv = node --version 2>&1; Write-Host "  Node.js: $nv" -ForegroundColor DarkGray }`,
+      `catch { Write-Host "  Node.js not found! Install from https://nodejs.org" -ForegroundColor Red; pause; exit 1 }`,
+      `if (Test-Path $dir) { Remove-Item $dir -Recurse -Force }`,
+      `New-Item -ItemType Directory -Path $dir -Force | Out-Null`,
+      `Set-Location $dir`,
+      `Write-Host "  Directory: $dir" -ForegroundColor DarkGray`,
+      // package.json
+      `'{"name":"slyos-chatbot","version":"1.0.0","type":"module"}' | Set-Content -Encoding UTF8 "package.json"`,
+      // .env
+      `"SLYOS_API_KEY=${apiKey}\`nSLYOS_MODEL=${modelId}\`nSLYOS_SERVER=https://api.slyos.world${kbId ? `\`nSLYOS_KB_ID=${kbId}` : ''}" | Set-Content -Encoding UTF8 ".env"`,
+      // app.mjs — write line-by-line to avoid quoting nightmares
+      `$lines = @(`,
+      ...appMjs.split('\n').map(line => `  ${JSON.stringify(line)}`),
+      `)`,
+      `$lines -join "\`n" | Set-Content -Encoding UTF8 "app.mjs"`,
+      // install
+      `Write-Host ""`,
+      `Write-Host "  Installing SDK (30-60 seconds)..." -ForegroundColor Cyan`,
+      `$npm = Get-Command npm -ErrorAction SilentlyContinue`,
+      `if (-not $npm) { Write-Host "  npm not found — is Node.js installed?" -ForegroundColor Red; pause; exit 1 }`,
+      `& npm install @beltoinc/slyos-sdk dotenv --legacy-peer-deps --silent 2>&1 | ForEach-Object { Write-Host "  $_" -ForegroundColor DarkGray }`,
+      `Write-Host "  Dependencies installed!" -ForegroundColor Green`,
+      `Write-Host ""`,
+      `& node app.mjs`,
+    ].join('\n');
 
-function Send-Message($userMessage) {
-    $body = @{
-        message   = $userMessage
-        model     = $Model
-        sessionId = $Session${kbId ? `\n        knowledgeBaseId = $KbId` : ''}
-    } | ConvertTo-Json -Compress
-
-    try {
-        $resp = Invoke-RestMethod \`
-            -Method POST \`
-            -Uri "$ApiBase/api/widget/$ApiKey/generate" \`
-            -ContentType 'application/json; charset=utf-8' \`
-            -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) \`
-            -ErrorAction Stop
-        return $resp.response
-    } catch {
-        $code = $_.Exception.Response.StatusCode.value__
-        if ($code -eq 401) { return "[Error] Invalid API key — check your key in the dashboard." }
-        if ($code -eq 402) { return "[Error] Subscription required — visit slyos.world to activate your plan." }
-        return "[Error] $($_.Exception.Message)"
+    // Encode to UTF-16LE base64 for powershell -EncodedCommand (no escaping needed)
+    const bytes: number[] = [];
+    for (let i = 0; i < psSetup.length; i++) {
+      const code = psSetup.charCodeAt(i);
+      bytes.push(code & 0xff, (code >> 8) & 0xff);
     }
-}
+    const encoded = btoa(bytes.map(b => String.fromCharCode(b)).join(''));
 
-Write-Banner
-
-while ($true) {
-    Write-Host "  You  > " -ForegroundColor Cyan -NoNewline
-    $userInput = $Host.UI.ReadLine()
-
-    if ([string]::IsNullOrWhiteSpace($userInput)) { continue }
-    if ($userInput -match '^(exit|quit|bye)$') {
-        Write-Host ""
-        Write-Host "  Goodbye!" -ForegroundColor DarkGray
-        Write-Host ""
-        break
-    }
-    if ($userInput -eq 'clear') { Write-Banner; continue }
-
-    Write-Host "  AI   > " -ForegroundColor Green -NoNewline
-    Write-Host "(thinking...)" -ForegroundColor DarkGray
-
-    $reply = Send-Message $userInput
-
-    # Overwrite the "thinking..." line
-    $pos = $Host.UI.RawUI.CursorPosition
-    $pos.Y -= 1
-    $Host.UI.RawUI.CursorPosition = $pos
-    Write-Host ("  " + " " * 70)
-    $pos.Y = $Host.UI.RawUI.CursorPosition.Y - 1
-    $Host.UI.RawUI.CursorPosition = $pos
-
-    Write-Host "  AI   > " -ForegroundColor Green -NoNewline
-    Write-Host $reply
-    Write-Host ""
-}
-`.trim();
-
-    // Wrap in a .bat that writes the PS1 to %TEMP% and runs it
     const bat = [
       '@echo off',
       'title SlyOS Chatbot',
-      'setlocal',
-      `set "PS1=%TEMP%\\slyos-chatbot-%RANDOM%.ps1"`,
-      '',
-      ':: Write PowerShell script to temp file',
-      `powershell -Command "$s = [System.IO.File]::ReadAllText('%~f0'); $start = $s.IndexOf('__PS1_START__') + 13; $end = $s.IndexOf('__PS1_END__'); [System.IO.File]::WriteAllText($env:PS1, $s.Substring($start, $end - $start), [System.Text.Encoding]::UTF8)"`,
-      '',
-      ':: Launch chatbot in a new PowerShell window',
-      `start "SlyOS Chatbot" powershell -NoExit -ExecutionPolicy Bypass -File "%PS1%"`,
-      'exit /b',
-      '',
-      '__PS1_START__',
-      psScript,
-      '__PS1_END__',
+      `powershell -NoExit -ExecutionPolicy Bypass -EncodedCommand ${encoded}`,
     ].join('\r\n');
 
     const blob = new Blob([bat], { type: 'text/plain' });
@@ -451,20 +443,21 @@ ${kbId ? `
 
                   <div className="flex items-center gap-3">
                     <div className="flex-1 h-px bg-[rgba(255,255,255,0.06)]" />
-                    <span className="text-xs text-[#555555]">or paste manually in PowerShell</span>
+                    <span className="text-xs text-[#555555]">or test API connectivity in PowerShell</span>
                     <div className="flex-1 h-px bg-[rgba(255,255,255,0.06)]" />
                   </div>
 
                   <div>
                     <p className="text-sm text-[#EDEDED] font-semibold mb-1">
-                      Open PowerShell and paste:
+                      Quick connectivity test
                     </p>
                     <p className="text-xs text-[#555555] mb-3">
-                      Press <kbd className="bg-[#1a1a1a] border border-[rgba(255,255,255,0.1)] px-1.5 py-0.5 rounded text-[#888888] font-mono">Win</kbd> + <kbd className="bg-[#1a1a1a] border border-[rgba(255,255,255,0.1)] px-1.5 py-0.5 rounded text-[#888888] font-mono">X</kbd> → Terminal (or PowerShell)
+                      Press <kbd className="bg-[#1a1a1a] border border-[rgba(255,255,255,0.1)] px-1.5 py-0.5 rounded text-[#888888] font-mono">Win</kbd> + <kbd className="bg-[#1a1a1a] border border-[rgba(255,255,255,0.1)] px-1.5 py-0.5 rounded text-[#888888] font-mono">X</kbd> → Terminal → paste and press Enter
                     </p>
-                    <div className="bg-[#050505] border border-[rgba(255,77,0,0.15)] rounded-xl p-4 font-mono text-xs text-[#4ade80] overflow-x-auto whitespace-pre-wrap leading-relaxed break-all">
+                    <div className="bg-[#050505] border border-[rgba(255,255,255,0.06)] rounded-xl p-4 font-mono text-xs text-[#4ade80] overflow-x-auto whitespace-pre-wrap leading-relaxed break-all">
                       {psOneLiner}
                     </div>
+                    <p className="text-[11px] text-[#555555] mt-2">For real local AI inference, use the Download button above.</p>
                   </div>
 
                   <Button
@@ -474,7 +467,7 @@ ${kbId ? `
                     {copiedStep === 1 ? (
                       <><Check className="w-4 h-4 text-[#4ade80]" /> Copied!</>
                     ) : (
-                      <><Copy className="w-4 h-4" /> Copy PowerShell Command</>
+                      <><Copy className="w-4 h-4" /> Copy Test Command</>
                     )}
                   </Button>
                 </>
