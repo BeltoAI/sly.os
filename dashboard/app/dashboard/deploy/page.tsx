@@ -63,8 +63,8 @@ export default function DeployPage() {
   // Terminal — Unix (curl | bash)
   const oneLiner = `curl -sL https://raw.githubusercontent.com/BeltoAI/sly.os/master/sdk/create-chatbot.sh | bash -s -- --api-key ${apiKey} --model ${modelId}${kbId ? ` --kb-id ${kbId}` : ''}`;
 
-  // Terminal — Windows PowerShell prerequisite check
-  const psOneLiner = `$v = node --version 2>&1; if ($LASTEXITCODE -eq 0) { Write-Host "✓ Node.js $v is installed — you're ready to run the chatbot!" -ForegroundColor Green } else { Write-Host "✗ Node.js not found. Download it from https://nodejs.org and re-run." -ForegroundColor Red }`;
+  // Terminal — Windows PowerShell full chatbot (pure PS, no Node.js needed)
+  const psOneLiner = `$k="${apiKey}"; $m="${modelId}"; $b="https://api.slyos.world"; $s=[guid]::NewGuid().ToString(); cls; Write-Host "\`n  SlyOS AI Chatbot" -ForegroundColor Cyan; Write-Host "  Model: $m  |  type 'exit' to quit\`n" -ForegroundColor DarkGray; try { $null=irm "$b/api/widget/$k/generate" -Method POST -ContentType "application/json" -Body (ConvertTo-Json @{message="hello";model=$m;sessionId=$s}) -EA Stop; Write-Host "  Connected! Start chatting.\`n" -ForegroundColor Green } catch { Write-Host "  Cannot connect: $($_.Exception.Message)" -ForegroundColor Red; pause; exit }; while($true) { $i=Read-Host "\`n  You"; if(!$i -or $i -match "^(exit|quit|bye|q)$") { Write-Host "\`n  Goodbye!\`n"; break }; try { $r=irm "$b/api/widget/$k/generate" -Method POST -ContentType "application/json" -Body (ConvertTo-Json @{message=$i;model=$m;sessionId=$s}); $t=@($r.response,$r.text,$r.message,$r.content)|?{$_}|select -First 1; Write-Host "\`n  AI: $t" -ForegroundColor Magenta } catch { Write-Host "  Error: $($_.Exception.Message)" -ForegroundColor Red } }`;
 
   const downloadBatLauncher = () => {
     // ── app.mjs — cloud API chatbot (no local model download, starts instantly) ──
@@ -474,21 +474,21 @@ ${kbId ? `
 
                   <div className="flex items-center gap-3">
                     <div className="flex-1 h-px bg-[rgba(255,255,255,0.06)]" />
-                    <span className="text-xs text-[#555555]">or check prerequisites first</span>
+                    <span className="text-xs text-[#555555]">or chat instantly in PowerShell — no install needed</span>
                     <div className="flex-1 h-px bg-[rgba(255,255,255,0.06)]" />
                   </div>
 
                   <div>
                     <p className="text-sm text-[#EDEDED] font-semibold mb-1">
-                      Check prerequisites
+                      Instant PowerShell Chatbot
                     </p>
                     <p className="text-xs text-[#555555] mb-3">
-                      Press <kbd className="bg-[#1a1a1a] border border-[rgba(255,255,255,0.1)] px-1.5 py-0.5 rounded text-[#888888] font-mono">Win</kbd> + <kbd className="bg-[#1a1a1a] border border-[rgba(255,255,255,0.1)] px-1.5 py-0.5 rounded text-[#888888] font-mono">X</kbd> → Terminal (PowerShell) → paste and press Enter
+                      Press <kbd className="bg-[#1a1a1a] border border-[rgba(255,255,255,0.1)] px-1.5 py-0.5 rounded text-[#888888] font-mono">Win</kbd> + <kbd className="bg-[#1a1a1a] border border-[rgba(255,255,255,0.1)] px-1.5 py-0.5 rounded text-[#888888] font-mono">X</kbd> → Terminal (PowerShell) → paste and hit Enter — chatbot starts immediately
                     </p>
                     <div className="bg-[#050505] border border-[rgba(255,255,255,0.06)] rounded-xl p-4 font-mono text-xs text-[#4ade80] overflow-x-auto whitespace-pre-wrap leading-relaxed break-all">
                       {psOneLiner}
                     </div>
-                    <p className="text-[11px] text-[#555555] mt-2">Node.js is required for the chatbot. If not installed, get it at <span className="text-[#FF4D00]">nodejs.org</span> — then download the launcher above.</p>
+                    <p className="text-[11px] text-[#555555] mt-2">Pure PowerShell — no Node.js or installs needed. Just paste and chat.</p>
                   </div>
 
                   <Button
@@ -498,7 +498,7 @@ ${kbId ? `
                     {copiedStep === 1 ? (
                       <><Check className="w-4 h-4 text-[#4ade80]" /> Copied!</>
                     ) : (
-                      <><Copy className="w-4 h-4" /> Copy Check Command</>
+                      <><Copy className="w-4 h-4" /> Copy Chatbot Command</>
                     )}
                   </Button>
                 </>
